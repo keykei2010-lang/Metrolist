@@ -528,6 +528,11 @@ fun LocalPlaylistScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                             )
+                            LocatePlayingSongButton(
+                                lazyListState,
+                                (if (isSearching) filteredSongs else mutableSongs).indexOfFirst { it.song.id == mediaMetadata?.id },
+                                if (isSearching) 1 else 2,
+                            )
                             if (editable) {
                                 IconButton(
                                     onClick = { locked = !locked },
@@ -713,6 +718,13 @@ fun LocalPlaylistScreen(
                         ) {
                             content()
                         }
+                    }
+                }
+            }
+            if (editable && !isSearching && !inSelectMode && songs.isNotEmpty()) {
+                item(key = "recommendations") {
+                    playlist?.let {
+                        PlaylistRecommendations(viewModel, it, songs.map { song -> song.song.id }.toSet())
                     }
                 }
             }

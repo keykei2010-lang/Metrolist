@@ -5,6 +5,16 @@
 
 package com.metrolist.music.viewmodels
 
+import com.metrolist.innertube.models.SongItem
+import com.metrolist.innertube.models.WatchEndpoint
+import com.metrolist.innertube.models.filterExplicit
+import com.metrolist.innertube.models.filterVideoSongs
+import com.metrolist.music.constants.HideExplicitKey
+import com.metrolist.music.utils.get
+import com.metrolist.music.utils.blendRecommendations
+import com.metrolist.music.utils.reportException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -41,8 +51,8 @@ import javax.inject.Inject
 class LocalPlaylistViewModel
 @Inject
 constructor(
-    @ApplicationContext context: Context,
-    database: MusicDatabase,
+    @ApplicationContext private val context: Context,
+    private val database: MusicDatabase,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     val playlistId = savedStateHandle.get<String>("playlistId")!!
@@ -91,10 +101,52 @@ constructor(
             }.reversed(sortDescending && sortType != PlaylistSongSortType.CUSTOM)
         }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    val recommendations = MutableStateFlow<List<SongItem>>(emptyList())
+    val recommendationsLoading = MutableStateFlow(false)
+    val recommendationsFailed = MutableStateFlow(false)
+    val recommendationsLoaded = MutableStateFlow(false)
+    private var recommendationJob: Job? = null
+
+    fun loadRecommendations() {
+        if (recommendationJob?.isActive == true) return
+        recommendationJob = viewModelScope.launch {
+            recommendationsLoading.value = true
+            recommendationsFailed.value = false
+            try {
+                val items = withContext(Dispatchers.IO) {
+                    val songs = database.playlistSongs(playlistId).first()
+                    val seeds = songs.map { it.song }.filterNot { it.song.isLocal || it.song.isUploaded || it.song.isEpisode }
+                        .distinctBy { it.id }.shuffled().take(5)
+                    val radios = seeds.mapNotNull { seed ->
+                        YouTube.next(WatchEndpoint(videoId = seed.id, playlistId = "RDAMVM${seed.id}"))
+                            .onFailure { if (it is CancellationException) throw it else reportException(it) }
+                            .getOrNull()?.items
+                    }
+                    if (seeds.isNotEmpty() && radios.isEmpty()) error("No seed radio could be loaded")
+                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                    val hideVideo = context.dataStore.get(HideVideoSongsKey, false)
+                    blendRecommendations(
+                        radios.map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideo) },
+                        songs.map { it.song.id }.toSet(), 20, SongItem::id,
+                    )
+                }
+                recommendations.value = items
+                recommendationsLoaded.value = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reportException(e)
+                recommendationsFailed.value = true
+            } finally {
+                recommendationsLoading.value = false
+            }
+        }
+    }
+
     init {
         viewModelScope.launch {
             val sortedSongs =
-                playlistSongs.first().sortedWith(compareBy({ it.map.position }, { it.map.id }))
+                database.playlistSongs(playlistId).first().sortedWith(compareBy({ it.map.position }, { it.map.id }))
             database.transaction {
                 sortedSongs.forEachIndexed { index, playlistSong ->
                     if (playlistSong.map.position != index) {

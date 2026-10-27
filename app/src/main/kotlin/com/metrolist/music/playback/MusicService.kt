@@ -7,6 +7,8 @@
 
 package com.metrolist.music.playback
 
+import com.metrolist.music.constants.AndroidAutoBoostKey
+import com.metrolist.music.constants.AndroidAutoLyricsKey
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
@@ -345,6 +347,11 @@ class MusicService :
 
     private var currentQueue: Queue = EmptyQueue
     var queueTitle: String? = null
+
+    internal val androidAutoConnection = AndroidAutoConnection()
+    val androidAutoConnected = androidAutoConnection.connected
+    val androidAutoLyrics by lazy { AndroidAutoLyricsController(this) }
+    private var androidAutoBoostDb = 0f
 
     val currentMediaMetadata = MutableStateFlow<com.metrolist.music.models.MediaMetadata?>(null)
     private val currentSong =
@@ -687,6 +694,17 @@ class MusicService :
         player.addListener(sleepTimer!!)
 
         playerInitialized.value = true
+        androidAutoLyrics.launchIn(scope)
+        combine(androidAutoConnected, dataStore.data.map { it[AndroidAutoBoostKey] ?: 0f }) { connected, boost ->
+            if (connected && boost.isFinite()) boost.coerceIn(0f, 12f) else 0f
+        }.distinctUntilChanged().collectLatest(scope) { boost ->
+            androidAutoBoostDb = boost
+            playerNormalizationProcessors.values.forEach { it.boostDb = boost }
+            val offload = dataStore.get(AudioOffload, false) &&
+                !dataStore.get(CrossfadeEnabledKey, false) && boost == 0f
+            player.setOffloadEnabled(offload)
+            secondaryPlayer?.setOffloadEnabled(offload)
+        }
         Timber.tag(TAG).d("Player successfully initialized")
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -871,9 +889,10 @@ class MusicService :
 
         combine(
             currentMediaMetadata.distinctUntilChangedBy { it?.id },
-            dataStore.data.map { it[ShowLyricsKey] ?: false }.distinctUntilChanged(),
-        ) { mediaMetadata, showLyrics ->
-            mediaMetadata to showLyrics
+            dataStore.data.map { (it[ShowLyricsKey] ?: false) to (it[AndroidAutoLyricsKey] ?: false) }.distinctUntilChanged(),
+            androidAutoConnected,
+        ) { mediaMetadata, (phoneLyrics, autoLyrics), autoConnected ->
+            mediaMetadata to (phoneLyrics || (autoLyrics && autoConnected))
         }.collectLatest(scope) { (mediaMetadata, showLyrics) ->
             if (showLyrics && mediaMetadata != null && database
                     .lyrics(mediaMetadata.id)
@@ -935,7 +954,7 @@ class MusicService :
             dataStore.data.map { it[CrossfadeEnabledKey] ?: false },
         ) { offloadPref, crossfadeEnabled ->
             // Force disable offload if crossfade is enabled to prevent volume ramp issues
-            if (crossfadeEnabled) false else offloadPref
+            if (crossfadeEnabled || androidAutoBoostDb > 0f) false else offloadPref
         }.distinctUntilChanged()
             .collectLatest(scope) { useOffload ->
                 player.setOffloadEnabled(useOffload)
@@ -1291,7 +1310,7 @@ class MusicService :
     }
 
     private fun createExoPlayer(prefs: Preferences? = null): ExoPlayer {
-        val normalizationProcessor = VolumeNormalizationAudioProcessor()
+        val normalizationProcessor = VolumeNormalizationAudioProcessor().apply { boostDb = androidAutoBoostDb }
         val eqProcessor = CustomEqualizerAudioProcessor()
 
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
@@ -1351,14 +1370,14 @@ class MusicService :
         if (prefs != null) {
             val offload = prefs[AudioOffload] ?: false
             val crossfade = prefs[CrossfadeEnabledKey] ?: false
-            player.setOffloadEnabled(if (crossfade) false else offload)
+            player.setOffloadEnabled(if (crossfade || androidAutoBoostDb > 0f) false else offload)
             player.skipSilenceEnabled = prefs[SkipSilenceKey] ?: false
         } else {
             player.apply {
                 runBlocking {
                     val offload = dataStore.get(AudioOffload, false)
                     val crossfade = dataStore.get(CrossfadeEnabledKey, false)
-                    setOffloadEnabled(if (crossfade) false else offload)
+                    setOffloadEnabled(if (crossfade || androidAutoBoostDb > 0f) false else offload)
                     skipSilenceEnabled = dataStore.get(SkipSilenceKey, false)
                 }
             }
@@ -4301,6 +4320,7 @@ class MusicService :
         connectivityObserver.unregister()
         abandonAudioFocus()
         closeAudioEffectSession()
+        androidAutoLyrics.release()
         mediaLibrarySessionCallback.release()
         mediaSession?.release()
         crossfadeMessage?.cancel()
@@ -5036,6 +5056,7 @@ class MusicService :
         const val EXTRA_ALARM_PLAYLIST_ID = "extra_alarm_playlist_id"
         const val EXTRA_ALARM_RANDOM_SONG = "extra_alarm_random_song"
 
+        const val HOME = "home"
         const val ROOT = "root"
         const val SONG = "song"
         const val ARTIST = "artist"

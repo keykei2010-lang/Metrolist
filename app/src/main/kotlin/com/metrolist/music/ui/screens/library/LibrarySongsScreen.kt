@@ -148,15 +148,7 @@ fun LibrarySongsScreen(
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenMultipleDocuments(),
         ) { uris: List<Uri> ->
-            if (uris.isNotEmpty()) {
-                uris.forEach { uri ->
-                    try {
-                        val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-                    } catch (e: SecurityException) {
-                        Timber.w(e, "Could not take persistable permission")
-                    }
-                }
+            if (uris.isNotEmpty() && uploadJob?.isActive != true) {
                 uploadJob =
                     scope.launch {
                         isUploading = true
@@ -196,7 +188,8 @@ fun LibrarySongsScreen(
                                         onProgress = { progress -> uploadProgress = progress },
                                     )
 
-                                if (result.getOrThrow()) successCount++
+                                check(result.getOrThrow()) { uploadFailedStr }
+                                successCount++
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -408,6 +401,15 @@ fun LibrarySongsScreen(
                     )
 
                     IconButton(
+                        enabled = uploadJob?.isActive != true,
+                        onClick = {
+                            filter = SongFilter.UPLOADED
+                            filePickerLauncher.launch(arrayOf("audio/*"))
+                        },
+                    ) {
+                        Icon(painterResource(R.drawable.upload), stringResource(R.string.upload_phone_audio))
+                    }
+                    IconButton(
                         onClick = { isSearchActive = true },
                         modifier = Modifier.padding(start = 8.dp, end = 8.dp).size(40.dp),
                     ) {
@@ -486,6 +488,7 @@ fun LibrarySongsScreen(
                 if (filter == SongFilter.UPLOADED) {
                     filePickerLauncher.launch(
                         arrayOf(
+                            "audio/*",
                             "audio/mpeg",
                             "audio/mp4",
                             "audio/x-m4a",

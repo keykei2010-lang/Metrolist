@@ -719,3 +719,9 @@ val CountryCodeToName =
         "YE" to "Yemen",
         "ZW" to "Zimbabwe",
     )
+
+val AndroidAutoBoostKey = floatPreferencesKey("androidAutoBoostDb")
+val AndroidAutoLyricsKey = booleanPreferencesKey("androidAutoLyrics")
+val AndroidAutoSortKey = stringPreferencesKey("androidAutoSort")
+val AndroidAutoDescendingKey = booleanPreferencesKey("androidAutoDescending")
+val PlayerControlsKey = stringPreferencesKey("playerControls")

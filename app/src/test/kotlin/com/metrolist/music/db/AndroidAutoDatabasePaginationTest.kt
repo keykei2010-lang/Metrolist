@@ -45,6 +45,28 @@ class AndroidAutoDatabasePaginationTest {
     }
 
     @Test
+    fun `car sorting and filters apply before pagination`() = runBlocking {
+        val day = LocalDateTime.of(2026, 1, 1, 0, 0)
+        database.dao.insert(SongEntity(id = "old", title = "Zulu", inLibrary = day))
+        database.dao.insert(SongEntity(id = "hidden", title = "Alpha", inLibrary = day.plusDays(1), explicit = true))
+        database.dao.insert(SongEntity(id = "video", title = "Beta", inLibrary = day.plusDays(2), isVideo = true))
+        database.dao.insert(SongEntity(id = "new", title = "Delta", inLibrary = day.plusDays(3)))
+        assertEquals(listOf("hidden", "video"), database.dao.songsByCreateDateAsc(2, 0, sortByName = true).map { it.id })
+        assertEquals(listOf("new", "video"), database.dao.songsByCreateDateAsc(2, 0, descending = true).map { it.id })
+        assertEquals(listOf("old", "new"), database.dao.songsByCreateDateAsc(2, 0, hideExplicit = true, hideVideos = true).map { it.id })
+        assertEquals(listOf("new"), database.dao.songsByCreateDateAsc(1, 1, hideExplicit = true, hideVideos = true).map { it.id })
+    }
+
+    @Test
+    fun `car playlist date order uses date added rather than cache insertion order`() = runBlocking {
+        val day = LocalDateTime.of(2026, 1, 1, 0, 0)
+        database.dao.insert(PlaylistEntity(id = "new", name = "Zulu", bookmarkedAt = day.plusDays(1)))
+        database.dao.insert(PlaylistEntity(id = "old", name = "Alpha", bookmarkedAt = day))
+        assertEquals(listOf("old", "new"), database.dao.playlistsByCreateDateAsc(10, 0).map { it.id })
+        assertEquals(listOf("new", "old"), database.dao.playlistsByCreateDateAsc(10, 0, descending = true).map { it.id })
+    }
+
+    @Test
     fun `song relation query stays below Room recursive fetch threshold`() = runBlocking {
         val libraryDate = LocalDateTime.of(2026, 1, 1, 0, 0)
         database.runInTransaction {

@@ -10,6 +10,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -21,7 +22,7 @@ import org.junit.Test
 class PodcastEnrichmentTest {
     @Test
     fun `new episodes enrich missing artists and preserve linked or unresolved episodes`() = runBlocking {
-        val lookedUp = mutableListOf<String>()
+        val lookedUp = ConcurrentLinkedQueue<String>()
         val engine = MockEngine { request ->
             val response = when {
                 request.url.encodedPath.endsWith("/browse") -> browseResponse

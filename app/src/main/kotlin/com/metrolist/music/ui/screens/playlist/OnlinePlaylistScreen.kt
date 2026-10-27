@@ -429,6 +429,9 @@ fun OnlinePlaylistScreen(
                 }
             },
             actions = {
+                if (!inSelectMode) {
+                    LocatePlayingSongButton(lazyListState, filteredSongs.indexOfFirst { it.second.id == mediaMetadata?.id }, if (isSearching) 0 else 1)
+                }
                 if (inSelectMode) {
                     Checkbox(
                         checked = selection.size == filteredSongs.size && selection.isNotEmpty(),

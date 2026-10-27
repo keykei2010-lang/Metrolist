@@ -5,6 +5,10 @@
 
 package com.metrolist.music.ui.player
 
+import com.metrolist.music.models.PlayerControl
+import com.metrolist.music.constants.PlayerControlsKey
+import com.metrolist.music.ui.screens.settings.label
+import androidx.compose.foundation.layout.FlowRow
 import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -242,6 +246,7 @@ fun BottomSheetPlayer(
         key = PlayerBackgroundStyleKey,
         defaultValue = PlayerBackgroundStyle.DEFAULT,
     )
+    val customControls by rememberPreference(PlayerControlsKey, "")
     val playerButtonsStyle by rememberEnumPreference(
         key = PlayerButtonsStyleKey,
         defaultValue = PlayerButtonsStyle.DEFAULT,
@@ -1589,7 +1594,58 @@ fun BottomSheetPlayer(
                 exit = shrinkVertically(shrinkTowards = Alignment.Top) + slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             ) {
                 Column {
-                    if (useNewPlayerDesign) {
+                    if (customControls.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerHorizontalPadding),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            PlayerControl.decode(customControls).forEach { control ->
+                                val enabled = when (control) {
+                                    PlayerControl.PREVIOUS -> canSkipPrevious && !isListenTogetherGuest
+                                    PlayerControl.NEXT -> canSkipNext && !isListenTogetherGuest
+                                    PlayerControl.SHUFFLE, PlayerControl.REPEAT -> !isListenTogetherGuest
+                                    else -> true
+                                }
+                                androidx.compose.material3.IconButton(
+                                    enabled = enabled,
+                                    onClick = {
+                                        when (control) {
+                                            PlayerControl.PREVIOUS -> playerConnection.seekToPrevious()
+                                            PlayerControl.NEXT -> playerConnection.seekToNext()
+                                            PlayerControl.PLAY_PAUSE -> {
+                                                if (isListenTogetherGuest) playerConnection.toggleMute()
+                                                else if (isCasting) {
+                                                    if (castIsPlaying) castHandler?.pause() else castHandler?.play()
+                                                } else if (playbackState == STATE_ENDED) {
+                                                    playerConnection.player.seekTo(0, 0)
+                                                    playerConnection.player.playWhenReady = true
+                                                } else playerConnection.togglePlayPause()
+                                            }
+                                            PlayerControl.SHUFFLE -> playerConnection.player.shuffleModeEnabled = !playerConnection.player.shuffleModeEnabled
+                                            PlayerControl.REPEAT -> playerConnection.player.toggleRepeatMode()
+                                            PlayerControl.LIKE -> playerConnection.toggleLike()
+                                            PlayerControl.LYRICS -> showInlineLyrics = !showInlineLyrics
+                                            PlayerControl.QUEUE -> queueSheetState.expandSoft()
+                                        }
+                                    },
+                                ) {
+                                    val icon = when (control) {
+                                        PlayerControl.SHUFFLE -> R.drawable.shuffle
+                                        PlayerControl.PREVIOUS -> R.drawable.skip_previous
+                                        PlayerControl.PLAY_PAUSE -> if (isListenTogetherGuest) {
+                                            if (isMuted) R.drawable.volume_off else R.drawable.volume_up
+                                        } else if (effectiveIsPlaying) R.drawable.pause else R.drawable.play
+                                        PlayerControl.NEXT -> R.drawable.skip_next
+                                        PlayerControl.REPEAT -> R.drawable.repeat
+                                        PlayerControl.LIKE -> if (currentSong?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border
+                                        PlayerControl.LYRICS -> R.drawable.lyrics
+                                        PlayerControl.QUEUE -> R.drawable.queue_music
+                                    }
+                                    Icon(painterResource(icon), control.label(), tint = TextBackgroundColor)
+                                }
+                            }
+                        }
+                    } else if (useNewPlayerDesign) {
                         Row(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,

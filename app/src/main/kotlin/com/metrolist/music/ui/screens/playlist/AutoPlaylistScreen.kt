@@ -788,6 +788,9 @@ fun AutoPlaylistScreen(
                 }
             },
             actions = {
+                if (!inSelectMode) {
+                    LocatePlayingSongButton(state, filteredSongs.indexOfFirst { it.id == mediaMetadata?.id }, if (isSearching) 1 else 2)
+                }
                 if (inSelectMode) {
                     Checkbox(
                         checked = selection.size == filteredSongs.size && selection.isNotEmpty(),

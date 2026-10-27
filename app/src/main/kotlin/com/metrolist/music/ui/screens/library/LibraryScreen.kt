@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens.library
 
+import com.metrolist.music.ui.component.swipeTabs
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,7 +50,9 @@ fun LibraryScreen() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val pages = listOf(LibraryFilter.LIBRARY, LibraryFilter.PLAYLISTS, LibraryFilter.SONGS,
+        LibraryFilter.ALBUMS, LibraryFilter.ARTISTS, LibraryFilter.PODCASTS)
+    Box(modifier = Modifier.fillMaxSize().swipeTabs(pages.indexOf(filterType), pages.size) { filterType = pages[it] }) {
         when (filterType) {
             LibraryFilter.LIBRARY -> LibraryMixScreen(
                 navController = navController,

@@ -5,6 +5,7 @@
 
 package com.metrolist.music
 
+import com.metrolist.music.ui.component.swipeTabs
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.ForegroundServiceStartNotAllowedException
@@ -1388,7 +1389,19 @@ class MainActivity : FragmentActivity() {
                                             slideOutHorizontally { it / 8 } + fadeOut(tween(200))
                                         }
                                     },
-                                    modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+                                    modifier = Modifier
+                                        .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
+                                        .swipeTabs(
+                                            index = routeIndexMap[currentRoute] ?: -1,
+                                            count = navigationItems.size,
+                                            enabled = !playerBottomSheetState.isExpanded,
+                                        ) { index ->
+                                            navController.navigate(navigationItems[index].route) {
+                                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        },
                                 ) {
                                     navigationBuilder(
                                         navController = navController,

@@ -994,4 +994,25 @@
     <string name="stream_source_web_creator_desc">Creator web client.</string>
     <string name="top_result">Top result</string>
     <string name="other">Other</string>
+    <string name="android_auto_boost">Android Auto volume boost</string>
+    <string name="android_auto_boost_description">Increase playback gain only while connected to Android Auto. High boosts may distort loud recordings.</string>
+    <string name="android_auto_lyrics">Lyrics on Android Auto</string>
+    <string name="android_auto_lyrics_description">Show the current synced lyric line in Now Playing. Passenger confirmation is required for each connection.</string>
+    <string name="android_auto_confirm_passenger">Confirm passenger for this connection</string>
+    <string name="android_auto_passenger_confirmed">Passenger confirmed for this connection</string>
+    <string name="android_auto_passenger_description">For passengers only. Confirm on the phone that you are not driving. Confirmation resets when Android Auto reconnects.</string>
+    <string name="android_auto_connect_first">Connect Android Auto before confirming passenger mode.</string>
+    <string name="android_auto_passenger_confirm">I am not the driver / I am a passenger</string>
+    <string name="android_auto_sort">Sort albums, playlists and songs</string>
+    <string name="android_auto_descending">Descending order</string>
+    <string name="locate_playing_song">Find currently playing song</string>
+    <string name="player_controls">Player buttons and order</string>
+    <string name="player_controls_reset">Restore default player buttons</string>
+    <string name="player_control_repeat">Repeat</string>
+    <string name="control_move_up">Move earlier</string>
+    <string name="control_move_down">Move later</string>
+    <string name="playlist_recommendations">Suggested songs · Load or refresh</string>
+    <string name="playlist_recommendations_failed">Could not load or add suggestions. Try again.</string>
+    <string name="upload_phone_audio">Upload audio from phone</string>
+    <string name="playlist_recommendations_empty">No more suggestions available. Add more songs or refresh.</string>
 </resources>

@@ -32,6 +32,13 @@ class MediaLibrarySessionCallbackTest {
     }
 
     @Test
+    fun `invalid search pages are empty instead of throwing`() {
+        assertEquals(emptyList<String>(), listOf("one").paginate(-1, 10))
+        assertEquals(emptyList<String>(), listOf("one").paginate(0, -1))
+        assertEquals(emptyList<String>(), listOf("one").paginate(Int.MAX_VALUE, Int.MAX_VALUE))
+    }
+
+    @Test
     fun `database pages are capped before loading relations`() {
         assertEquals(
             AndroidAutoPageRequest(offset = 0, limit = MAX_ANDROID_AUTO_PAGE_SIZE),

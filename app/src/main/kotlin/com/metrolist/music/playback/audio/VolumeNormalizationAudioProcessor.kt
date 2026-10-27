@@ -23,6 +23,10 @@ class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
             }
         }
 
+    @Volatile
+    var boostDb: Float = 0f
+        set(value) { field = if (value.isFinite()) value.coerceIn(0f, 12f) else 0f }
+
     private data class GainState(val targetGainMb: Int, val linearGain: Double)
 
     @Volatile
@@ -57,7 +61,9 @@ class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
         if (!inputBuffer.hasRemaining()) return
 
         val gain = currentGain
-        val applyGain = enabled && gain.targetGainMb != 0
+        val boost = boostDb
+        val applyGain = (enabled && gain.targetGainMb != 0) || boost > 0f
+        val linearGain = 10.0.pow(((if (enabled) gain.targetGainMb else 0) + boost * 100.0) / 2000.0)
         val sampleCount = inputBuffer.remaining() / bytesPerSample
         val output = replaceOutputBuffer(sampleCount * bytesPerSample)
 
@@ -70,7 +76,7 @@ class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
                     val sample = inputBuffer.getShort()
                     output.putShort(
                         if (applyGain) {
-                            (sample * gain.linearGain)
+                            (sample * linearGain)
                                 .coerceIn(-32768.0, 32767.0)
                                 .toInt()
                                 .toShort()
@@ -88,7 +94,7 @@ class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
                     val sample = (b2 shl 16) or (b1 shl 8) or b0
                     val processed =
                         if (applyGain) {
-                            (sample * gain.linearGain)
+                            (sample * linearGain)
                                 .coerceIn(-8388608.0, 8388607.0)
                                 .toInt()
                         } else {
@@ -104,7 +110,7 @@ class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
                     val sample = inputBuffer.getInt()
                     output.putInt(
                         if (applyGain) {
-                            (sample * gain.linearGain)
+                            (sample * linearGain)
                                 .coerceIn(-2147483648.0, 2147483647.0)
                                 .toLong()
                                 .toInt()
@@ -119,7 +125,7 @@ class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
                     val sample = inputBuffer.getFloat()
                     output.putFloat(
                         if (applyGain) {
-                            (sample * gain.linearGain.toFloat()).coerceIn(-1.0f, 1.0f)
+                            (sample * linearGain.toFloat()).coerceIn(-1.0f, 1.0f)
                         } else {
                             sample
                         },

@@ -5,6 +5,9 @@
 
 package com.metrolist.music.ui.screens.settings
 
+import com.metrolist.music.models.AndroidAutoSection
+import com.metrolist.music.models.serializeSections
+import com.metrolist.music.models.deserializeSections
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -60,35 +63,14 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.math.roundToInt
 
-enum class AndroidAutoSection(val id: String) {
-    LIKED("liked"),
-    SONGS("songs"),
-    ARTISTS("artists"),
-    ALBUMS("albums"),
-    PLAYLISTS("playlists"),
-}
-
 @Composable
 fun AndroidAutoSection.label(): String = when (this) {
+    AndroidAutoSection.HOME -> stringResource(R.string.home)
     AndroidAutoSection.LIKED -> stringResource(R.string.liked_songs)
     AndroidAutoSection.SONGS -> stringResource(R.string.songs)
     AndroidAutoSection.ARTISTS -> stringResource(R.string.artists)
     AndroidAutoSection.ALBUMS -> stringResource(R.string.albums)
     AndroidAutoSection.PLAYLISTS -> stringResource(R.string.playlists)
-}
-
-fun serializeSections(sections: List<Pair<AndroidAutoSection, Boolean>>): String =
-    sections.joinToString(",") { (section, enabled) -> "${section.id}:$enabled" }
-
-fun deserializeSections(raw: String): List<Pair<AndroidAutoSection, Boolean>> {
-    if (raw.isBlank()) return AndroidAutoSection.values().map { it to true }
-    return raw.split(",").mapNotNull { token ->
-        val parts = token.split(":")
-        if (parts.size != 2) return@mapNotNull null
-        val section = AndroidAutoSection.values().find { it.id == parts[0] } ?: return@mapNotNull null
-        val enabled = parts[1].toBooleanStrictOrNull() ?: true
-        section to enabled
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -157,6 +139,8 @@ fun AndroidAutoSettings(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
     ) {
+        AndroidAutoPlaybackSettings()
+
         // Visible sections
         Material3SettingsGroup(
             title = stringResource(R.string.android_auto_visible_sections),
@@ -183,6 +167,7 @@ fun AndroidAutoSettings(
                             Material3SettingsItem(
                                 icon = painterResource(
                                     when (section) {
+                                        AndroidAutoSection.HOME -> R.drawable.home_outlined
                                         AndroidAutoSection.LIKED -> R.drawable.favorite
                                         AndroidAutoSection.SONGS -> R.drawable.music_note
                                         AndroidAutoSection.ARTISTS -> R.drawable.artist
@@ -349,7 +334,7 @@ fun AndroidAutoSettings(
                                     },
                             )
                             Slider(
-                                value = limitValues.indexOf(androidAutoSearchLocalLimit).toFloat(),
+                                value = limitValues.indexOf(androidAutoSearchLocalLimit).coerceAtLeast(0).toFloat(),
                                 enabled = true,
                                 onValueChange = {
                                     val newValue = limitValues[it.roundToInt()]

@@ -421,6 +421,9 @@ fun CachePlaylistScreen(
                 }
             },
             actions = {
+                if (!inSelectMode) {
+                    LocatePlayingSongButton(lazyListState, filteredSongs.indexOfFirst { it.id == mediaMetadata?.id }, if (isSearching) 1 else 2)
+                }
                 if (inSelectMode) {
                     Checkbox(
                         checked = selection.size == filteredSongs.size && selection.isNotEmpty(),

@@ -142,8 +142,15 @@ interface DatabaseDao {
     fun songsByCreateDateAsc(): Flow<List<Song>>
 
     @Transaction
-    @Query("SELECT * FROM song WHERE inLibrary IS NOT NULL ORDER BY inLibrary, rowId LIMIT :limit OFFSET :offset")
-    suspend fun songsByCreateDateAsc(limit: Int, offset: Int): List<Song>
+    @Query("SELECT * FROM song WHERE inLibrary IS NOT NULL AND (NOT :hideExplicit OR NOT explicit) AND (NOT :hideVideos OR NOT isVideo) ORDER BY CASE WHEN :sortByName AND NOT :descending THEN title END COLLATE NOCASE ASC, CASE WHEN :sortByName AND :descending THEN title END COLLATE NOCASE DESC, CASE WHEN NOT :sortByName AND :descending THEN inLibrary END DESC, CASE WHEN NOT :sortByName AND NOT :descending THEN inLibrary END ASC, rowId LIMIT :limit OFFSET :offset")
+    suspend fun songsByCreateDateAsc(
+        limit: Int,
+        offset: Int,
+        sortByName: Boolean = false,
+        descending: Boolean = false,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<Song>
 
     @Transaction
     @Query("SELECT * FROM song WHERE inLibrary IS NOT NULL ORDER BY title")
@@ -197,8 +204,13 @@ interface DatabaseDao {
     fun likedSongsByCreateDateAsc(): Flow<List<Song>>
 
     @Transaction
-    @Query("SELECT * FROM song WHERE liked ORDER BY likedDate DESC, rowId DESC LIMIT :limit OFFSET :offset")
-    suspend fun likedSongsByCreateDateDesc(limit: Int, offset: Int): List<Song>
+    @Query("SELECT * FROM song WHERE liked AND (NOT :hideExplicit OR NOT explicit) AND (NOT :hideVideos OR NOT isVideo) ORDER BY likedDate DESC, rowId DESC LIMIT :limit OFFSET :offset")
+    suspend fun likedSongsByCreateDateDesc(
+        limit: Int,
+        offset: Int,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<Song>
 
     @Transaction
     @Query("SELECT * FROM song WHERE liked ORDER BY title")
@@ -253,10 +265,16 @@ interface DatabaseDao {
     @Transaction
     @Query(
         "SELECT song.* FROM song JOIN song_album_map ON song.id = song_album_map.songId " +
-            "WHERE song_album_map.albumId = :albumId " +
+            "WHERE song_album_map.albumId = :albumId AND (NOT :hideExplicit OR NOT song.explicit) AND (NOT :hideVideos OR NOT song.isVideo) " +
             "ORDER BY song_album_map.`index`, song.rowId LIMIT :limit OFFSET :offset",
     )
-    suspend fun albumSongs(albumId: String, limit: Int, offset: Int): List<Song>
+    suspend fun albumSongs(
+        albumId: String,
+        limit: Int,
+        offset: Int,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<Song>
 
     @Transaction
     @Query("SELECT * FROM playlist_song_map WHERE playlistId = :playlistId ORDER BY position")
@@ -264,10 +282,16 @@ interface DatabaseDao {
 
     @Transaction
     @Query(
-        "SELECT * FROM playlist_song_map WHERE playlistId = :playlistId " +
+        "SELECT * FROM playlist_song_map WHERE playlistId = :playlistId AND songId IN (SELECT id FROM song WHERE (NOT :hideExplicit OR NOT explicit) AND (NOT :hideVideos OR NOT isVideo)) " +
             "ORDER BY position, id LIMIT :limit OFFSET :offset",
     )
-    suspend fun playlistSongs(playlistId: String, limit: Int, offset: Int): List<PlaylistSong>
+    suspend fun playlistSongs(
+        playlistId: String,
+        limit: Int,
+        offset: Int,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<PlaylistSong>
 
     @Transaction
     @Query(
@@ -290,10 +314,16 @@ interface DatabaseDao {
     @Transaction
     @Query(
         "SELECT song.* FROM song_artist_map JOIN song ON song_artist_map.songId = song.id " +
-            "WHERE artistId = :artistId AND inLibrary IS NOT NULL " +
+            "WHERE artistId = :artistId AND inLibrary IS NOT NULL AND (NOT :hideExplicit OR NOT song.explicit) AND (NOT :hideVideos OR NOT song.isVideo) " +
             "ORDER BY inLibrary, song.rowId LIMIT :limit OFFSET :offset",
     )
-    suspend fun artistSongsByCreateDateAsc(artistId: String, limit: Int, offset: Int): List<Song>
+    suspend fun artistSongsByCreateDateAsc(
+        artistId: String,
+        limit: Int,
+        offset: Int,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<Song>
 
     @Transaction
     @Query(
@@ -697,8 +727,12 @@ interface DatabaseDao {
     @Query("SELECT * FROM song WHERE dateDownload IS NOT NULL AND isDownloaded = 0")
     fun cachePlaylistSongs(): Flow<List<Song>>
 
-    @Query("SELECT id FROM song WHERE id IN (:songIds)")
-    suspend fun existingSongIds(songIds: List<String>): List<String>
+    @Query("SELECT id FROM song WHERE id IN (:songIds) AND (NOT :hideExplicit OR NOT explicit) AND (NOT :hideVideos OR NOT isVideo)")
+    suspend fun existingSongIds(
+        songIds: List<String>,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<String>
 
 
     @Transaction
@@ -883,11 +917,18 @@ interface DatabaseDao {
     @Transaction
     @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
     @Query(
-        "SELECT * FROM album WHERE EXISTS(SELECT * FROM song " +
-            "WHERE song.albumId = album.id AND song.inLibrary IS NOT NULL) " +
-            "ORDER BY rowId LIMIT :limit OFFSET :offset",
+        "SELECT * FROM album WHERE (NOT :hideExplicit OR NOT explicit) AND EXISTS(SELECT * FROM song " +
+            "WHERE song.albumId = album.id AND song.inLibrary IS NOT NULL AND (NOT :hideExplicit OR NOT song.explicit) AND (NOT :hideVideos OR NOT song.isVideo)) " +
+            "ORDER BY CASE WHEN :sortByName AND NOT :descending THEN title END COLLATE NOCASE ASC, CASE WHEN :sortByName AND :descending THEN title END COLLATE NOCASE DESC, CASE WHEN NOT :sortByName AND :descending THEN COALESCE(inLibrary, bookmarkedAt, (SELECT MIN(song.inLibrary) FROM song WHERE song.albumId = album.id AND song.inLibrary IS NOT NULL AND (NOT :hideExplicit OR NOT song.explicit) AND (NOT :hideVideos OR NOT song.isVideo))) END DESC, CASE WHEN NOT :sortByName AND NOT :descending THEN COALESCE(inLibrary, bookmarkedAt, (SELECT MIN(song.inLibrary) FROM song WHERE song.albumId = album.id AND song.inLibrary IS NOT NULL AND (NOT :hideExplicit OR NOT song.explicit) AND (NOT :hideVideos OR NOT song.isVideo))) END ASC, rowId LIMIT :limit OFFSET :offset",
     )
-    suspend fun albumsByCreateDateAsc(limit: Int, offset: Int): List<Album>
+    suspend fun albumsByCreateDateAsc(
+        limit: Int,
+        offset: Int,
+        sortByName: Boolean = false,
+        descending: Boolean = false,
+        hideExplicit: Boolean = false,
+        hideVideos: Boolean = false,
+    ): List<Album>
 
     @Transaction
     @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
@@ -1099,9 +1140,14 @@ interface DatabaseDao {
     @Transaction
     @Query(
         "SELECT *, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount " +
-            "FROM playlist WHERE bookmarkedAt IS NOT NULL ORDER BY rowId LIMIT :limit OFFSET :offset",
+            "FROM playlist WHERE bookmarkedAt IS NOT NULL ORDER BY CASE WHEN :sortByName AND NOT :descending THEN name END COLLATE NOCASE ASC, CASE WHEN :sortByName AND :descending THEN name END COLLATE NOCASE DESC, CASE WHEN NOT :sortByName AND :descending THEN bookmarkedAt END DESC, CASE WHEN NOT :sortByName AND NOT :descending THEN bookmarkedAt END ASC, rowId LIMIT :limit OFFSET :offset",
     )
-    suspend fun playlistsByCreateDateAsc(limit: Int, offset: Int): List<Playlist>
+    suspend fun playlistsByCreateDateAsc(
+        limit: Int,
+        offset: Int,
+        sortByName: Boolean = false,
+        descending: Boolean = false,
+    ): List<Playlist>
 
     @Query("SELECT browseId FROM playlist WHERE bookmarkedAt IS NOT NULL AND browseId IS NOT NULL")
     suspend fun bookmarkedPlaylistBrowseIds(): List<String>
