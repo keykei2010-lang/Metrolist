@@ -83,6 +83,8 @@ enum class SliderStyle {
 const val SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
 val AppLanguageKey = stringPreferencesKey("appLanguage")
 val ContentLanguageKey = stringPreferencesKey("contentLanguage")
+val VoiceCommandLanguageKey = stringPreferencesKey("voiceCommandLanguage")
+val VoiceCommandPreferOfflineKey = booleanPreferencesKey("voiceCommandPreferOffline")
 val ContentCountryKey = stringPreferencesKey("contentCountry")
 val EnableZemerKey = booleanPreferencesKey("enableZemer")
 val EnableKugouKey = booleanPreferencesKey("enableKugou")

@@ -39,4 +39,28 @@ class VoiceCommandTest {
         assertTrue(VoiceCommand.matchesArtist("Beyonce", "Beyoncé"))
         assertFalse(VoiceCommand.matchesArtist("Queen", "Queens of the Stone Age"))
     }
+    @Test fun `Portuguese artist commands support Portugal and Brazil wording`() {
+        listOf("Toca músicas dos Muse", "Reproduz as canções de Muse", "Toque musicas do Muse", "Põe música de Muse").forEach {
+            assertEquals(VoiceCommand("Muse", artistOnly = true), VoiceCommand.parse(it))
+        }
+    }
+    @Test fun `Portuguese song commands preserve title and specified artist`() {
+        val command = VoiceCommand.parse("Reproduz a música Hello da Adele")!!
+        assertEquals("Hello", command.query)
+        assertEquals("Adele", command.artist)
+        assertEquals("cached", command.findSong(listOf(song("cached", "Hello", "Adele")))?.id)
+        assertNull(command.findSong(listOf(song("wrong", "Hello", "Lionel Richie"))))
+    }
+    @Test fun `Portuguese prepositions within literal song titles are preserved`() {
+        val track = song("engate", "Canção de Engate", "António Variações")
+        val command = VoiceCommand.parse("Toca Canção de Engate")!!
+        assertEquals("Canção de Engate", command.songQuery)
+        assertEquals("engate", command.findSong(listOf(track))?.id)
+        assertEquals("engate", VoiceCommand.parse("Toca Canção de Engate de António Variações")!!.findSong(listOf(track))?.id)
+        val band = song("band", "Hello", "Banda do Mar")
+        assertEquals("band", VoiceCommand.parse("Toca Hello da Banda do Mar")!!.findSong(listOf(band))?.id)
+    }
+    @Test fun `Portuguese instruction without a query does nothing`() {
+        listOf("Toca", "Reproduz ", "Põe").forEach { assertNull(VoiceCommand.parse(it)) }
+    }
 }
