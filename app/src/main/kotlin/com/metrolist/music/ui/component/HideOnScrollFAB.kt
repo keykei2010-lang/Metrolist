@@ -41,6 +41,9 @@ fun BoxScope.HideOnScrollFAB(
     onClick: () -> Unit,
     onRecognitionClick: (() -> Unit)? = null,
 ) {
+    val microphoneAction = rememberMusicMicrophoneAction {
+        onRecognitionClick?.invoke() ?: if (icon == R.drawable.mic) onClick() else Unit
+    }
     AnimatedVisibility(
         visible = visible && lazyListState.isScrollingUp(),
         enter = slideInVertically { it },
@@ -59,25 +62,25 @@ fun BoxScope.HideOnScrollFAB(
         ) {
             if (onRecognitionClick != null) {
                 SmallFloatingActionButton(
-                    onClick = onRecognitionClick,
+                    onClick = microphoneAction,
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.mic),
-                        contentDescription = stringResource(R.string.recognize_music),
+                        contentDescription = stringResource(R.string.microphone_actions),
                         modifier = Modifier.size(20.dp)
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
             FloatingActionButton(
-                onClick = onClick,
+                onClick = if (icon == R.drawable.mic) microphoneAction else onClick,
             ) {
                 Icon(
                     painter = painterResource(icon),
-                    contentDescription = null,
+                    contentDescription = if (icon == R.drawable.mic) stringResource(R.string.microphone_actions) else null,
                 )
             }
         }

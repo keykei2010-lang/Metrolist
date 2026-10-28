@@ -575,8 +575,15 @@ class MainActivity : FragmentActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val layoutParams = window.attributes
                 if (enableHighRefreshRate) {
-                    layoutParams.preferredDisplayModeId = 0
+                    val display = window.windowManager.defaultDisplay
+                    val currentMode = display.mode
+                    val fastest = display.supportedModes
+                        .filter { it.physicalWidth == currentMode.physicalWidth && it.physicalHeight == currentMode.physicalHeight }
+                        .maxByOrNull { it.refreshRate }
+                    layoutParams.preferredDisplayModeId = fastest?.modeId ?: 0
+                    layoutParams.preferredRefreshRate = fastest?.refreshRate ?: 0f
                 } else {
+                    layoutParams.preferredRefreshRate = 60f
                     val modes = window.windowManager.defaultDisplay.supportedModes
                     val mode60 =
                         modes.firstOrNull { kotlin.math.abs(it.refreshRate - 60f) < 1f }

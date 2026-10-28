@@ -1015,4 +1015,11 @@
     <string name="playlist_recommendations_failed">Could not load or add suggestions. Try again.</string>
     <string name="upload_phone_audio">Upload audio from phone</string>
     <string name="playlist_recommendations_empty">No more suggestions available. Add more songs or refresh.</string>
+    <string name="microphone_actions">Microphone</string>
+    <string name="voice_commands">Voice commands</string>
+    <string name="voice_command_prompt">Say “play [song]”, “play [song] by [artist]”, or “play songs from [artist]”. Identify music listens to the song playing around you.</string>
+    <string name="voice_command_unavailable">No speech recognition app is available. Enable a speech recognition service on this phone.</string>
+    <string name="voice_command_no_match">No matching song was found.</string>
+    <string name="voice_command_failed">Could not play that command. Check your connection and try again.</string>
+    <string name="android_auto_voice_help">Use the Android Auto microphone or steering-wheel voice button. Say “play [song] on Metrolist” or “play songs from [artist] on Metrolist”. Microphone visibility and voice-provider selection are controlled by Android Auto.</string>
 </resources>

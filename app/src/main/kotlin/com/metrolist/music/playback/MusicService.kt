@@ -1804,6 +1804,8 @@ class MusicService :
         }
     }
 
+    internal val voiceCommands by lazy { VoiceCommandResolver(this) }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
@@ -2627,15 +2629,16 @@ class MusicService :
             currentQueue.hasNextPage() &&
             !(cachedDisableLoadMoreWhenRepeatAll && player.repeatMode == REPEAT_MODE_ALL)
         ) {
+            val loadingQueue = currentQueue
             scope.launch(SilentHandler) {
                 val mediaItems =
                     withContext(Dispatchers.IO) {
-                        currentQueue
+                        loadingQueue
                             .nextPage()
                             .filterExplicit(cachedHideExplicit)
                             .filterVideoSongs(cachedHideVideoSongs)
                     }
-                if (player.playbackState != STATE_IDLE && mediaItems.isNotEmpty()) {
+                if (currentQueue === loadingQueue && player.playbackState != STATE_IDLE && mediaItems.isNotEmpty()) {
                     player.addMediaItems(mediaItems)
                     if (player.shuffleModeEnabled) {
                         applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, cachedShufflePlaylistFirst)
