@@ -769,6 +769,21 @@ constructor(
             val defaultResult = MediaItemsWithStartPosition(emptyList(), startIndex, startPositionMs)
             val voiceQuery = mediaItems.firstOrNull()?.requestMetadata?.searchQuery
 
+            if (!voiceQuery.isNullOrBlank()) {
+                val extras = mediaItems.firstOrNull()?.requestMetadata?.extras
+                val artist = extras?.getString(android.provider.MediaStore.EXTRA_MEDIA_ARTIST)
+                val artistFocus = extras?.getString(android.provider.MediaStore.EXTRA_MEDIA_FOCUS) ==
+                    android.provider.MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE
+                val query = if (artistFocus && !artist.isNullOrBlank()) "play songs from $artist" else voiceQuery
+                val queue = service.voiceCommands.resolve(query) ?: return@future defaultResult
+                val status = queue.getInitialStatus()
+                if (status.items.isEmpty()) return@future defaultResult
+                withContext(Dispatchers.Main) {
+                    service.adoptQueue(queue, status.title, status.items.size)
+                }
+                return@future MediaItemsWithStartPosition(status.items, status.mediaItemIndex, status.position)
+            }
+
             val path = if (!voiceQuery.isNullOrBlank()) {
                 listOf(MusicService.SEARCH, voiceQuery, "")
             } else {

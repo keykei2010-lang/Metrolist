@@ -225,7 +225,8 @@ fun CommunityPlaylistCard(
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         }
 
-    val dbPlaylist by database.playlistByBrowseId(item.playlist.id).collectAsStateWithLifecycle(initialValue = null)
+    val playlistFlow = remember(database, item.playlist.id) { database.playlistByBrowseId(item.playlist.id) }
+    val dbPlaylist by playlistFlow.collectAsStateWithLifecycle(initialValue = null)
     val isBookmarked = dbPlaylist?.playlist?.bookmarkedAt != null
 
     Card(
@@ -789,7 +790,7 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(homePage?.continuation) {
         snapshotFlow {
             lazylistState.layoutInfo.visibleItemsInfo
                 .lastOrNull()
@@ -1571,10 +1572,8 @@ fun HomeScreen(
                                                                 }
                                                             } else if (itemIndex < pageItems.size) {
                                                                 val item = pageItems[itemIndex]
-                                                                val isPinned by database.speedDialDao
-                                                                    .isPinned(
-                                                                        item.id,
-                                                                    ).collectAsStateWithLifecycle(initialValue = false)
+                                                                val pinnedFlow = remember(database, item.id) { database.speedDialDao.isPinned(item.id) }
+                                                                val isPinned by pinnedFlow.collectAsStateWithLifecycle(initialValue = false)
 
                                                                 Box(
                                                                     modifier =
@@ -1802,9 +1801,8 @@ fun HomeScreen(
                                                 key = { "home_quickpick_${it.id}" },
                                             ) { originalSong ->
                                             // fetch song from database to keep updated
-                                            val song by database
-                                                .song(originalSong.id)
-                                                .collectAsStateWithLifecycle(initialValue = originalSong)
+                                            val songFlow = remember(database, originalSong.id) { database.song(originalSong.id) }
+                                            val song by songFlow.collectAsStateWithLifecycle(initialValue = originalSong)
 
                                             SongListItem(
                                                 song = song!!,
@@ -2124,9 +2122,8 @@ fun HomeScreen(
                                                 items = forgottenFavorites.distinctBy { it.id },
                                                 key = { "home_forgotten_${it.id}" },
                                             ) { originalSong ->
-                                            val song by database
-                                                .song(originalSong.id)
-                                                .collectAsStateWithLifecycle(initialValue = originalSong)
+                                            val songFlow = remember(database, originalSong.id) { database.song(originalSong.id) }
+                                            val song by songFlow.collectAsStateWithLifecycle(initialValue = originalSong)
 
                                             SongListItem(
                                                 song = song!!,
