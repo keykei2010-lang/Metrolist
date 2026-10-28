@@ -1017,7 +1017,7 @@
     <string name="playlist_recommendations_empty">No more suggestions available. Add more songs or refresh.</string>
     <string name="microphone_actions">Microphone</string>
     <string name="voice_commands">Voice commands</string>
-    <string name="voice_command_prompt">Say “play [song]”, “play [song] by [artist]”, or “play songs from [artist]”. Identify music listens to the song playing around you.</string>
+    <string name="voice_command_prompt">Speak in English: “play [song]”, “play [song] by [artist]”, or “play songs from [artist]”. Voice recognition may use an internet connection. Identify music listens to the song playing around you.</string>
     <string name="voice_command_unavailable">No speech recognition app is available. Enable a speech recognition service on this phone.</string>
     <string name="voice_command_no_match">No matching song was found.</string>
     <string name="voice_command_failed">Could not play that command. Check your connection and try again.</string>

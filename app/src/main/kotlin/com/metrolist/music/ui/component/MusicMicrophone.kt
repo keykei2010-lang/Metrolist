@@ -68,7 +68,8 @@ internal fun rememberMusicMicrophoneAction(onRecognize: () -> Unit): () -> Unit 
                         launcher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                             putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
-                            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
                         })
                     } catch (e: ActivityNotFoundException) {
                         Toast.makeText(context, unavailable, Toast.LENGTH_LONG).show()
