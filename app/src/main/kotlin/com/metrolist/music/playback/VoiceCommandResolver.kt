@@ -28,6 +28,16 @@ internal class VoiceCommandResolver(private val service: MusicService) {
         val database = service.database
         val hideExplicit = service.dataStore.get(HideExplicitKey, false)
         val hideVideos = service.dataStore.get(HideVideoSongsKey, false)
+        suspend fun playlistQueue(name: String): Queue? {
+            val playlist = database.searchPlaylists("").first().firstOrNull {
+                VoiceCommand.normalize(it.playlist.name) == VoiceCommand.normalize(name)
+            } ?: return null
+            val songs = database.playlistSongs(playlist.id).first().map { it.song }.filter {
+                (!hideExplicit || !it.song.explicit) && (!hideVideos || !it.song.isVideo)
+            }
+            return if (songs.isEmpty()) null else ListQueue(playlist.playlist.name, songs.map { it.toMediaItem() })
+        }
+        if (command.playlistOnly) return@withContext playlistQueue(command.query)
         val all = database.allSongs().first().filter {
             (!hideExplicit || !it.song.explicit) && (!hideVideos || !it.song.isVideo)
         }
@@ -57,28 +67,26 @@ internal class VoiceCommandResolver(private val service: MusicService) {
                 .filter { song -> song.artists.any { it.id == artist.id || VoiceCommand.matchesArtist(name, it.name) } }
                 .distinctBy { it.id }.map { it.toMediaItem() }
         }
-        if (command.artistOnly) {
-            val local = eligible.filter { artistMatches(it, command.query) &&
-                (it.id in offline || it.id in playlists || it.song.liked) }
+        val artistSongs = eligible.filter { it.id in offline || it.id in playlists || it.song.liked }
+        suspend fun artistQueue(name: String): Queue? {
+            val local = artistSongs.filter { artistMatches(it, name) }
             if (local.isEmpty()) {
-                val online = onlineArtist(command.query)
-                return@withContext if (online.isEmpty()) null else ListQueue(command.query, online)
+                val online = onlineArtist(name)
+                return if (online.isEmpty()) null else ListQueue(name, online)
             }
-            return@withContext LocalFirstVoiceQueue(command.query, local.map { it.toMediaItem() }) {
-                onlineArtist(command.query)
+            return LocalFirstVoiceQueue(name, local.map { it.toMediaItem() }) {
+                onlineArtist(name)
             }
+        }
+        if (command.artistOnly) return@withContext artistQueue(command.query)
+        val exact = command.findSong(eligible, exactOnly = true)
+        if (exact != null) return@withContext ListQueue(exact.title, listOf(exact.toMediaItem()))
+        if (!command.songOnly) {
+            playlistQueue(command.songQuery)?.let { return@withContext it }
+            command.findArtist(artistSongs)?.let { return@withContext artistQueue(it) }
         }
         val local = command.findSong(eligible)
         if (local != null) return@withContext ListQueue(local.title, listOf(local.toMediaItem()))
-        val playlist = database.searchPlaylists(command.query).first().firstOrNull {
-            VoiceCommand.normalize(it.playlist.name) == VoiceCommand.normalize(command.query)
-        }
-        if (playlist != null && command.artist == null) {
-            val songs = database.playlistSongs(playlist.id).first().map { it.song }.filter {
-                (!hideExplicit || !it.song.explicit) && (!hideVideos || !it.song.isVideo)
-            }
-            if (songs.isNotEmpty()) return@withContext ListQueue(playlist.playlist.name, songs.map { it.toMediaItem() })
-        }
         val online = YouTube.search(command.songQuery, YouTube.SearchFilter.FILTER_SONG)
             .getOrThrow().items.filterIsInstance<SongItem>().filterExplicit(hideExplicit).filterVideoSongs(hideVideos)
         // Rank online candidates with the same matching policy as saved songs.
