@@ -1017,7 +1017,7 @@
     <string name="playlist_recommendations_empty">No more suggestions available. Add more songs or refresh.</string>
     <string name="microphone_actions">Microphone</string>
     <string name="voice_commands">Voice commands</string>
-    <string name="voice_command_prompt">Say “play [song] by [artist]” or “play songs from [artist]”. In Portuguese: “toca [canção] de [artista]” or “toca músicas de [artista]”. Identify music listens to the song playing around you.</string>
+    <string name="voice_command_prompt">Say a song, playlist, or artist name, such as “play Muse”, “playlist Road Trip”, or “play Hello by Adele”. In Portuguese: “toca Muse”, “toca a playlist Viagem”, or “toca Hello da Adele”. Short requests check exact song titles, playlists, then saved artists before similar songs. Identify music listens to the song playing around you.</string>
     <string name="voice_command_language">Speech language: %1$s</string>
     <string name="voice_language_portugal">Portuguese (Portugal)</string>
     <string name="voice_language_brazil">Portuguese (Brazil)</string>

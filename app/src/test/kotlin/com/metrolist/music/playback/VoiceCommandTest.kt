@@ -25,7 +25,7 @@ class VoiceCommandTest {
     }
     @Test fun `song command strips instruction and separates artist`() {
         assertEquals(VoiceCommand("One More Time", "Daft Punk"), VoiceCommand.parse("Play One More Time by Daft Punk"))
-        assertEquals(VoiceCommand("Hello"), VoiceCommand.parse("play the song Hello"))
+        assertEquals(VoiceCommand("Hello", songOnly = true), VoiceCommand.parse("play the song Hello"))
     }
     @Test fun `artist command accepts from and by`() {
         assertEquals(VoiceCommand("Muse", artistOnly = true), VoiceCommand.parse("Play songs from Muse"))
@@ -62,5 +62,42 @@ class VoiceCommandTest {
     }
     @Test fun `Portuguese instruction without a query does nothing`() {
         listOf("Toca", "Reproduz ", "Põe").forEach { assertNull(VoiceCommand.parse(it)) }
+    }
+    @Test fun `playlist requests work with and without a play instruction`() {
+        listOf("play playlist Road Trip", "playlist Road Trip", "play my playlist Road Trip").forEach {
+            assertEquals(VoiceCommand("Road Trip", playlistOnly = true), VoiceCommand.parse(it))
+        }
+        val command = VoiceCommand.parse("playlist Hello")!!
+        assertNull(command.findSong(listOf(song("hello", "Hello", "Adele"))))
+        assertNull(command.findArtist(listOf(song("hello", "Hi", "Hello"))))
+        assertNull(VoiceCommand.parse("play playlist"))
+    }
+    @Test fun `Portuguese playlist names keep prepositions and articles`() {
+        listOf("Toca a playlist Sons de Verão", "playlist Sons de Verão", "Reproduz a minha lista de reprodução Sons de Verão").forEach {
+            assertEquals(VoiceCommand("Sons de Verão", playlistOnly = true), VoiceCommand.parse(it))
+        }
+    }
+    @Test fun `short artist requests recognize saved artists before fuzzy song titles`() {
+        val songs = listOf(song("fuzzy", "Muse Live", "Other Artist"), song("muse", "Uprising", "Muse"))
+        listOf("play Muse", "Toca Muse", "Muse").forEach {
+            val command = VoiceCommand.parse(it)!!
+            assertNull(command.findSong(songs, exactOnly = true))
+            assertEquals("Muse", command.findArtist(songs))
+        }
+        assertNull(VoiceCommand.parse("play Queen")!!.findArtist(listOf(song("q", "No One Knows", "Queens of the Stone Age"))))
+    }
+    @Test fun `an explicit song request is not inferred to mean an artist`() {
+        val songs = listOf(song("muse", "Uprising", "Muse"))
+        assertNull(VoiceCommand.parse("play song Muse")!!.findArtist(songs))
+        assertNull(VoiceCommand.parse("toca a música Muse")!!.findArtist(songs))
+    }
+    @Test fun `exact title selection keeps artist constraints and cached ordering`() {
+        val songs = listOf(song("wrong", "Hello", "Lionel Richie"), song("cached", "Hello", "Adele"), song("saved", "Hello", "Adele"))
+        assertEquals("cached", VoiceCommand.parse("play Hello by Adele")!!.findSong(songs, exactOnly = true)?.id)
+        assertEquals("wrong", VoiceCommand.parse("Hello")!!.findSong(songs, exactOnly = true)?.id)
+    }
+    @Test fun `artist inference preserves prepositions within the artist name`() {
+        val songs = listOf(song("band", "Mais Ninguém", "Banda do Mar"))
+        assertEquals("Banda do Mar", VoiceCommand.parse("Toca Banda do Mar")!!.findArtist(songs))
     }
 }
