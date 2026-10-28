@@ -17,33 +17,22 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AndroidAutoLyricsController(private val service: MusicService) {
-    val passengerConfirmed = service.androidAutoConnection.passengerConfirmed
     private var original: MediaItem? = null
     private var pushedLine: String? = null
     private var released = false
 
-    fun confirmPassenger() {
-        service.androidAutoConnection.confirmPassenger()
-    }
-
-    fun revokeConfirmation() {
-        passengerConfirmed.value = false
-    }
-
     fun release() {
         restorePushedItem()
         released = true
-        revokeConfirmation()
     }
 
     fun launchIn(scope: CoroutineScope) = scope.launch {
         combine(
             service.androidAutoConnected,
-            passengerConfirmed,
             service.dataStore.data.map { it[AndroidAutoLyricsKey] ?: false }.distinctUntilChanged(),
             service.currentMediaMetadata.distinctUntilChangedBy { it?.id },
-        ) { connected, confirmed, enabled, metadata ->
-            metadata?.takeIf { connected && confirmed && enabled }
+        ) { connected, enabled, metadata ->
+            metadata?.takeIf { connected && enabled }
         }.collectLatest media@{ metadata ->
             restorePushedItem()
             if (metadata == null || released) return@media
