@@ -35,6 +35,10 @@ fun AndroidAutoPlaybackSettings() {
                 description = { Text(stringResource(R.string.android_auto_voice_help)) },
             ),
             Material3SettingsItem(
+                title = { Text(stringResource(R.string.library_playlist_sort)) },
+                description = { Text(stringResource(R.string.android_auto_playlist_actions_help)) },
+            ),
+            Material3SettingsItem(
                 title = { Text(stringResource(R.string.android_auto_boost)) },
                 description = {
                     Column {

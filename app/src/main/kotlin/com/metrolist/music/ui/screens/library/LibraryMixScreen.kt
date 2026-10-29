@@ -237,7 +237,8 @@ fun LibraryMixScreen(
     val songs = viewModel.songs.collectAsStateWithLifecycle()
     val playlist = viewModel.playlists.collectAsStateWithLifecycle()
 
-    var allItems = albums.value + artist.value + playlist.value
+    val hiddenPlaylists by rememberPreference(com.metrolist.music.constants.HiddenPlaylistsKey, emptySet<String>())
+    var allItems = albums.value + artist.value + playlist.value.filter { it.id !in hiddenPlaylists }
     val locale = LocalLocale.current.platformLocale
     val collator = remember(locale) {
         Collator.getInstance(locale).apply {

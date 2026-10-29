@@ -17,6 +17,8 @@ import com.metrolist.music.db.entities.SongArtistMap
 import com.metrolist.music.db.entities.SongEntity
 import java.time.LocalDateTime
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import com.metrolist.music.constants.PlaylistSortType
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -64,6 +66,26 @@ class AndroidAutoDatabasePaginationTest {
         database.dao.insert(PlaylistEntity(id = "old", name = "Alpha", bookmarkedAt = day))
         assertEquals(listOf("old", "new"), database.dao.playlistsByCreateDateAsc(10, 0).map { it.id })
         assertEquals(listOf("new", "old"), database.dao.playlistsByCreateDateAsc(10, 0, descending = true).map { it.id })
+    }
+
+    @Test
+    fun `playlist play time sums distinct member songs and includes empty playlists`() = runBlocking {
+        val day = LocalDateTime.of(2026, 1, 1, 0, 0)
+        listOf("empty", "short", "long").forEach {
+            database.dao.insert(PlaylistEntity(id = it, name = it, bookmarkedAt = day))
+        }
+        database.dao.insert(PlaylistEntity(id = "unbookmarked", name = "unbookmarked"))
+        database.dao.insert(SongEntity(id = "one", title = "One", totalPlayTime = 100))
+        database.dao.insert(SongEntity(id = "two", title = "Two", totalPlayTime = 150))
+        database.dao.insert(SongEntity(id = "three", title = "Three", totalPlayTime = 175))
+        database.dao.insert(PlaylistSongMap(playlistId = "short", songId = "one", position = 0))
+        database.dao.insert(PlaylistSongMap(playlistId = "short", songId = "one", position = 1))
+        database.dao.insert(PlaylistSongMap(playlistId = "long", songId = "two", position = 0))
+        assertEquals(listOf("empty", "short", "long"),
+            database.dao.playlists(PlaylistSortType.PLAY_TIME, false).first().map { it.id })
+        database.dao.insert(PlaylistSongMap(playlistId = "short", songId = "three", position = 2))
+        assertEquals(listOf("short", "long", "empty"),
+            database.dao.playlists(PlaylistSortType.PLAY_TIME, true).first().map { it.id })
     }
 
     @Test

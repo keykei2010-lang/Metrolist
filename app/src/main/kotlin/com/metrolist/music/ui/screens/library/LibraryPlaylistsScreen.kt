@@ -66,14 +66,7 @@ import com.metrolist.music.constants.LibraryViewType
 import com.metrolist.music.constants.PlaylistSortDescendingKey
 import com.metrolist.music.constants.PlaylistSortType
 import com.metrolist.music.constants.PlaylistSortTypeKey
-import com.metrolist.music.constants.ShowCachedPlaylistKey
-import com.metrolist.music.constants.ShowDownloadedPlaylistKey
-import com.metrolist.music.constants.ShowLikedPlaylistKey
-import com.metrolist.music.constants.ShowTopPlaylistKey
-import com.metrolist.music.constants.ShowUploadedPlaylistKey
 import com.metrolist.music.constants.YtmSyncKey
-import com.metrolist.music.db.entities.Playlist
-import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.ui.component.CreatePlaylistDialog
 import com.metrolist.music.ui.component.LibrarySearchEmptyPlaceholder
 import com.metrolist.music.ui.component.LibrarySearchHeader
@@ -85,19 +78,15 @@ import com.metrolist.music.ui.component.PlaylistListItem
 import com.metrolist.music.ui.component.SortHeader
 import com.metrolist.music.extensions.matchesNormalizedQuery
 import com.metrolist.music.extensions.normalizeForSearch
+import com.metrolist.music.models.libraryPlaylistEntries
+import com.metrolist.music.models.playlistIsVisible
+import com.metrolist.music.ui.component.PlaylistLibraryDialog
+import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.LibraryPlaylistsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.UUID
-
-private data class VisiblePlaylistItem(
-    val key: String,
-    val playlist: Playlist,
-    val autoPlaylist: Boolean,
-    val route: String? = null,
-)
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -131,155 +120,21 @@ fun LibraryPlaylistsScreen(
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
-    val filteredPlaylists = remember(playlists, normalizedQuery) {
-        if (normalizedQuery.isBlank()) {
-            playlists
-        } else {
-            playlists.filter { playlist ->
-                matchesNormalizedQuery(normalizedQuery, playlist.playlist.name)
-            }
-        }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val preferences by remember { context.dataStore.data }.collectAsStateWithLifecycle(
+        initialValue = androidx.datastore.preferences.core.emptyPreferences(),
+    )
+    val allEntries = remember(playlists, preferences) {
+        libraryPlaylistEntries(context, playlists, preferences, includeHidden = true)
     }
-
-    val topSize by viewModel.topValue.collectAsStateWithLifecycle(initialValue = 50)
-
-    val likedPlaylist =
-        Playlist(
-            playlist = PlaylistEntity(
-                id = UUID.randomUUID().toString(),
-                name = stringResource(R.string.liked)
-            ),
-            songCount = 0,
-            songThumbnails = emptyList(),
-        )
-
-    val downloadPlaylist =
-        Playlist(
-            playlist = PlaylistEntity(
-                id = UUID.randomUUID().toString(),
-                name = stringResource(R.string.offline)
-            ),
-            songCount = 0,
-            songThumbnails = emptyList(),
-        )
-
-    val topPlaylist =
-        Playlist(
-            playlist = PlaylistEntity(
-                id = UUID.randomUUID().toString(),
-                name = stringResource(R.string.my_top) + " $topSize"
-            ),
-            songCount = 0,
-            songThumbnails = emptyList(),
-        )
-
-
-    val uploadedPlaylist =
-        Playlist(
-            playlist = PlaylistEntity(
-                id = UUID.randomUUID().toString(),
-                name = stringResource(R.string.uploaded_playlist)
-            ),
-            songCount = 0,
-            songThumbnails = emptyList(),
-        )
-
-    val cachedPlaylist =
-        Playlist(
-            playlist = PlaylistEntity(
-                id = UUID.randomUUID().toString(),
-                name = stringResource(R.string.cached_playlist)
-            ),
-            songCount = 0,
-            songThumbnails = emptyList(),
-        )
-
-    val (showLiked) = rememberPreference(ShowLikedPlaylistKey, true)
-    val (showDownloaded) = rememberPreference(ShowDownloadedPlaylistKey, true)
-    val (showTop) = rememberPreference(ShowTopPlaylistKey, true)
-    val (showUploaded) = rememberPreference(ShowUploadedPlaylistKey, true)
-    val (showCached) = rememberPreference(ShowCachedPlaylistKey, true)
-    val showLikedPlaylist = showLiked && matchesNormalizedQuery(normalizedQuery, likedPlaylist.playlist.name)
-    val showDownloadedPlaylist =
-        showDownloaded && matchesNormalizedQuery(normalizedQuery, downloadPlaylist.playlist.name)
-    val showCachedPlaylists = showCached && matchesNormalizedQuery(normalizedQuery, cachedPlaylist.playlist.name)
-    val showTopPlaylists = showTop && matchesNormalizedQuery(normalizedQuery, topPlaylist.playlist.name)
-    val showUploadedPlaylists =
-        showUploaded && matchesNormalizedQuery(normalizedQuery, uploadedPlaylist.playlist.name)
-
-    val visibleResults = remember(
-        filteredPlaylists,
-        showLikedPlaylist,
-        showDownloadedPlaylist,
-        showCachedPlaylists,
-        showTopPlaylists,
-        showUploadedPlaylists,
-        topSize,
-    ) {
-        buildList {
-            if (showLikedPlaylist) {
-                add(
-                    VisiblePlaylistItem(
-                        key = "likedPlaylist",
-                        playlist = likedPlaylist,
-                        autoPlaylist = true,
-                        route = "auto_playlist/liked",
-                    ),
-                )
-            }
-            if (showDownloadedPlaylist) {
-                add(
-                    VisiblePlaylistItem(
-                        key = "downloadedPlaylist",
-                        playlist = downloadPlaylist,
-                        autoPlaylist = true,
-                        route = "auto_playlist/downloaded",
-                    ),
-                )
-            }
-            if (showCachedPlaylists) {
-                add(
-                    VisiblePlaylistItem(
-                        key = "cachedPlaylist",
-                        playlist = cachedPlaylist,
-                        autoPlaylist = true,
-                        route = "cache_playlist/cached",
-                    ),
-                )
-            }
-            if (showTopPlaylists) {
-                add(
-                    VisiblePlaylistItem(
-                        key = "TopPlaylist",
-                        playlist = topPlaylist,
-                        autoPlaylist = true,
-                        route = "top_playlist/$topSize",
-                    ),
-                )
-            }
-            if (showUploadedPlaylists) {
-                add(
-                    VisiblePlaylistItem(
-                        key = "uploadedPlaylist",
-                        playlist = uploadedPlaylist,
-                        autoPlaylist = true,
-                        route = "auto_playlist/uploaded",
-                    ),
-                )
-            }
-
-            filteredPlaylists
-                .distinctBy { it.id }
-                .forEach { playlist ->
-                    add(
-                        VisiblePlaylistItem(
-                            key = playlist.id,
-                            playlist = playlist,
-                            autoPlaylist = false,
-                        ),
-                    )
-                }
-        }
+    val visibleResults = remember(allEntries, preferences, normalizedQuery) {
+        allEntries.filter { playlistIsVisible(it.id, preferences) &&
+            matchesNormalizedQuery(normalizedQuery, it.playlist.playlist.name) }
+    }
+    var showLibraryDialog by rememberSaveable { mutableStateOf(false) }
+    if (showLibraryDialog) {
+        PlaylistLibraryDialog(allEntries, preferences, onDismiss = { showLibraryDialog = false })
     }
 
     val lazyListState = rememberLazyListState()
@@ -343,29 +198,39 @@ fun LibraryPlaylistsScreen(
             SortHeader(
                 sortType = sortType,
                 sortDescending = sortDescending,
-                onSortTypeChange = onSortTypeChange,
+                onSortTypeChange = {
+                    onSortTypeChange(it)
+                    if (it == PlaylistSortType.MANUAL) showLibraryDialog = true
+                },
                 onSortDescendingChange = onSortDescendingChange,
+                showDescending = sortType != PlaylistSortType.MANUAL,
                 sortTypeText = { sortType ->
                     when (sortType) {
                         PlaylistSortType.CREATE_DATE -> R.string.sort_by_create_date
                         PlaylistSortType.NAME -> R.string.sort_by_name
                         PlaylistSortType.SONG_COUNT -> R.string.sort_by_song_count
                         PlaylistSortType.LAST_UPDATED -> R.string.sort_by_last_updated
+                        PlaylistSortType.PLAY_TIME -> R.string.sort_by_play_time
+                        PlaylistSortType.MANUAL -> R.string.playlist_manual_sort
                     }
                 },
             )
 
             Spacer(Modifier.weight(1f))
 
-            Text(
+            if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 420) Text(
                 text = pluralStringResource(
                     R.plurals.n_playlist,
-                    visibleResults.count { !it.autoPlaylist },
-                    visibleResults.count { !it.autoPlaylist },
+                    visibleResults.count { it.builtIn == null },
+                    visibleResults.count { it.builtIn == null },
                 ),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
+
+            IconButton(onClick = { showLibraryDialog = true }, modifier = Modifier.size(40.dp)) {
+                Icon(painterResource(R.drawable.tune), stringResource(R.string.manage_library_playlists))
+            }
 
             IconButton(
                 onClick = { isSearchActive = true },
@@ -441,10 +306,10 @@ fun LibraryPlaylistsScreen(
 
                     items(
                         items = visibleResults,
-                        key = { it.key },
+                        key = { it.id },
                         contentType = { CONTENT_TYPE_PLAYLIST },
                     ) { item ->
-                        if (item.autoPlaylist) {
+                        if (item.builtIn != null) {
                             PlaylistListItem(
                                 playlist = item.playlist,
                                 autoPlaylist = true,
@@ -452,7 +317,7 @@ fun LibraryPlaylistsScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            item.route?.let(navController::navigate)
+                                            navController.navigate(item.route)
                                         }
                                         .animateItem(),
                             )
@@ -509,10 +374,10 @@ fun LibraryPlaylistsScreen(
 
                     items(
                         items = visibleResults,
-                        key = { it.key },
+                        key = { it.id },
                         contentType = { CONTENT_TYPE_PLAYLIST },
                     ) { item ->
-                        if (item.autoPlaylist) {
+                        if (item.builtIn != null) {
                             PlaylistGridItem(
                                 playlist = item.playlist,
                                 fillMaxWidth = true,
@@ -522,7 +387,7 @@ fun LibraryPlaylistsScreen(
                                         .fillMaxWidth()
                                         .combinedClickable(
                                             onClick = {
-                                                item.route?.let(navController::navigate)
+                                                navController.navigate(item.route)
                                             },
                                         )
                                         .animateItem(),

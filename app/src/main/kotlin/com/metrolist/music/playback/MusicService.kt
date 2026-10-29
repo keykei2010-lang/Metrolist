@@ -9,6 +9,7 @@ package com.metrolist.music.playback
 
 import com.metrolist.music.constants.AndroidAutoBoostKey
 import com.metrolist.music.constants.AndroidAutoLyricsKey
+import com.metrolist.music.extensions.filterYoutubeShorts
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
@@ -720,6 +721,18 @@ class MusicService :
         mediaSession =
             MediaLibrarySession
                 .Builder(this, player, mediaLibrarySessionCallback)
+                .setCommandButtonsForMediaItems(listOf(
+                    CommandButton.Builder(CommandButton.ICON_SETTINGS)
+                        .setSessionCommand(MediaSessionConstants.CommandCyclePlaylistSort)
+                        .setDisplayName(getString(R.string.android_auto_next_playlist_sort))
+                        .setIconUri(android.net.Uri.parse("android.resource://$packageName/${R.drawable.tune}"))
+                        .build(),
+                    CommandButton.Builder(CommandButton.ICON_REPEAT_ALL)
+                        .setSessionCommand(MediaSessionConstants.CommandReversePlaylistSort)
+                        .setDisplayName(getString(R.string.android_auto_reverse_playlist_sort))
+                        .setIconUri(android.net.Uri.parse("android.resource://$packageName/${R.drawable.arrow_downward}"))
+                        .build(),
+                ))
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         this,
@@ -729,6 +742,35 @@ class MusicService :
                     ),
                 ).setBitmapLoader(CoilBitmapLoader(this, scope))
                 .build()
+        androidAutoConnected.flatMapLatest { connected ->
+            if (!connected) kotlinx.coroutines.flow.flowOf(null) else dataStore.data.distinctUntilChangedBy { preferences ->
+                listOf(
+                    preferences[com.metrolist.music.constants.PlaylistSortTypeKey],
+                    preferences[com.metrolist.music.constants.PlaylistSortDescendingKey],
+                    preferences[com.metrolist.music.constants.PlaylistManualOrderKey],
+                    preferences[com.metrolist.music.constants.HiddenPlaylistsKey],
+                    preferences[com.metrolist.music.constants.TopSize],
+                    preferences[com.metrolist.music.constants.HideYoutubeShortsKey],
+                    com.metrolist.music.models.BuiltInPlaylist.entries.map { preferences[it.visibilityKey] },
+                )
+            }.flatMapLatest { preferences ->
+                database.playlists(
+                    preferences[com.metrolist.music.constants.PlaylistSortTypeKey]
+                        .toEnum(com.metrolist.music.constants.PlaylistSortType.CREATE_DATE),
+                    preferences[com.metrolist.music.constants.PlaylistSortDescendingKey] ?: true,
+                ).map { playlists ->
+                    Triple(preferences[com.metrolist.music.constants.PlaylistSortTypeKey],
+                        preferences[com.metrolist.music.constants.PlaylistSortDescendingKey],
+                        com.metrolist.music.models.libraryPlaylistEntries(this, playlists.filterYoutubeShorts(
+                            preferences[com.metrolist.music.constants.HideYoutubeShortsKey] ?: false), preferences))
+                }
+            }
+        }.distinctUntilChanged().collectLatest(scope) { layout ->
+            if (androidAutoConnected.value && layout != null) {
+                mediaSession?.notifyChildrenChanged(PLAYLIST, layout.third.size, null)
+                mediaSession?.notifyChildrenChanged(ROOT, Int.MAX_VALUE, null)
+            }
+        }
         player.repeatMode = startupPrefs!![RepeatModeKey] ?: REPEAT_MODE_OFF
 
         if (startupPrefs!![RememberShuffleAndRepeatKey] ?: true) {
