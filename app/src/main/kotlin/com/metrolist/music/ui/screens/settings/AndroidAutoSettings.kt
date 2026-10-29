@@ -140,6 +140,7 @@ fun AndroidAutoSettings(
             .padding(horizontal = 16.dp)
     ) {
         AndroidAutoPlaybackSettings()
+        com.metrolist.music.ui.component.PlaylistLibrarySettings()
 
         // Visible sections
         Material3SettingsGroup(

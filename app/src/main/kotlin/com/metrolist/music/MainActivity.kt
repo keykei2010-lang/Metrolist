@@ -665,6 +665,7 @@ class MainActivity : FragmentActivity() {
                                         ImageRequest
                                             .Builder(this@MainActivity)
                                             .data(song.thumbnailUrl)
+                                            .size(100, 100)
                                             .allowHardware(false)
                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                             .diskCachePolicy(CachePolicy.ENABLED)
@@ -674,8 +675,11 @@ class MainActivity : FragmentActivity() {
                                     )
                                 val extractedColor = result.image?.toBitmap()?.extractThemeColor() ?: selectedThemeColor
                                 themeColorCache[song.thumbnailUrl] = extractedColor
+                                if (themeColorCache.size > 32) themeColorCache.remove(themeColorCache.keys.first())
                                 withFrameNanos { }
                                 themeColor = extractedColor
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 withFrameNanos { }
                                 themeColor = selectedThemeColor

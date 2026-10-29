@@ -7,6 +7,21 @@ package com.metrolist.music.playback
 
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
+import com.metrolist.music.constants.PlaylistSortTypeKey
+import com.metrolist.music.constants.PlaylistSortDescendingKey
+import com.metrolist.music.constants.PlaylistSortType
+import com.metrolist.music.constants.PlaylistManualOrderKey
+import com.metrolist.music.constants.ShowLikedPlaylistKey
+import com.metrolist.music.models.nextPlaylistSortType
+import com.metrolist.music.models.titleResource
+import androidx.datastore.preferences.core.edit
+import com.metrolist.music.constants.HideYoutubeShortsKey
+import com.metrolist.music.constants.TopSize
+import com.metrolist.music.constants.MyTopFilter
+import com.metrolist.music.models.BuiltInPlaylist
+import com.metrolist.music.models.libraryPlaylistEntries
+import com.metrolist.music.extensions.toEnum
+import com.metrolist.music.extensions.filterYoutubeShorts
 import com.metrolist.music.constants.AndroidAutoSortKey
 import com.metrolist.music.constants.AndroidAutoDescendingKey
 import android.content.ContentResolver
@@ -134,6 +149,8 @@ constructor(
                 .add(MediaSessionConstants.CommandToggleShuffle)
                 .add(MediaSessionConstants.CommandToggleRepeatMode)
                 .add(MediaSessionConstants.CommandAddToTargetPlaylist)
+                .add(MediaSessionConstants.CommandCyclePlaylistSort)
+                .add(MediaSessionConstants.CommandReversePlaylistSort)
                 .build(),
             connectionResult.availablePlayerCommands,
         )
@@ -145,6 +162,24 @@ constructor(
         customCommand: SessionCommand,
         args: Bundle,
     ): ListenableFuture<SessionResult> {
+        if (customCommand.customAction == MediaSessionConstants.ACTION_CYCLE_PLAYLIST_SORT ||
+            customCommand.customAction == MediaSessionConstants.ACTION_REVERSE_PLAYLIST_SORT) {
+            return scope.future(Dispatchers.IO) {
+                val preferences = context.dataStore.data.first()
+                val manualIds = if (preferences[PlaylistSortTypeKey] == PlaylistSortType.MANUAL.name) {
+                    val playlists = database.playlists(PlaylistSortType.MANUAL, preferences[PlaylistSortDescendingKey] ?: true).first()
+                    libraryPlaylistEntries(context, playlists, preferences, includeHidden = true).map { it.id }
+                } else emptyList()
+                context.dataStore.edit {
+                    if (customCommand.customAction == MediaSessionConstants.ACTION_CYCLE_PLAYLIST_SORT) {
+                        it[PlaylistSortTypeKey] = nextPlaylistSortType(it[PlaylistSortTypeKey]).name
+                    } else if (it[PlaylistSortTypeKey] == PlaylistSortType.MANUAL.name && manualIds.isNotEmpty()) {
+                        it[PlaylistManualOrderKey] = manualIds.reversed().joinToString(",")
+                    } else it[PlaylistSortDescendingKey] = !(it[PlaylistSortDescendingKey] ?: true)
+                }
+                SessionResult(SessionResult.RESULT_SUCCESS)
+            }
+        }
         when (customCommand.customAction) {
             MediaSessionConstants.ACTION_TOGGLE_LIKE -> toggleLike()
             MediaSessionConstants.ACTION_TOGGLE_START_RADIO -> toggleStartRadio()
@@ -226,8 +261,9 @@ constructor(
                         val sections = deserializeSections(sectionsRaw)
                         val showYoutubePlaylists = context.dataStore.get(AndroidAutoYouTubePlaylistsKey, false)
                         val rootItems = sections
-                            .filter { (_, enabled) -> enabled }
-                            .ifEmpty { listOf(AndroidAutoSection.LIKED to true) }
+                            .filter { (section, enabled) -> enabled &&
+                                (section != AndroidAutoSection.LIKED || context.dataStore.get(ShowLikedPlaylistKey, true)) }
+                            .ifEmpty { listOf(AndroidAutoSection.HOME to true) }
                             .map { (section, _) ->
                                 when (section) {
                                     AndroidAutoSection.HOME -> browsableMediaItem(
@@ -265,7 +301,8 @@ constructor(
                                     AndroidAutoSection.PLAYLISTS -> browsableMediaItem(
                                         MusicService.PLAYLIST,
                                         context.getString(R.string.playlists),
-                                        null,
+                                        context.getString(context.dataStore.get(PlaylistSortTypeKey, PlaylistSortType.CREATE_DATE.name)
+                                            .toEnum(PlaylistSortType.CREATE_DATE).titleResource()),
                                         drawableUri(R.drawable.queue_music),
                                         MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
                                     )
@@ -530,51 +567,42 @@ constructor(
     }
 
     private suspend fun loadPlaylistContainers(request: AndroidAutoPageRequest): List<MediaItem> {
-        val builtInItems =
-            if (request.offset < 2 && request.limit > 0) {
-                val likedSongCount = database.likedSongsCount().first()
-                val downloadedSongCount = downloadUtil.downloads.value.size
-                listOf(
-                    browsableMediaItem(
-                        "${MusicService.PLAYLIST}/${PlaylistEntity.LIKED_PLAYLIST_ID}",
-                        context.getString(R.string.liked_songs),
-                        context.resources.getQuantityString(R.plurals.n_song, likedSongCount, likedSongCount),
-                        drawableUri(R.drawable.favorite),
-                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                    ),
-                    browsableMediaItem(
-                        "${MusicService.PLAYLIST}/${PlaylistEntity.DOWNLOADED_PLAYLIST_ID}",
-                        context.getString(R.string.downloaded_songs),
-                        context.resources.getQuantityString(
-                            R.plurals.n_song,
-                            downloadedSongCount,
-                            downloadedSongCount,
-                        ),
-                        drawableUri(R.drawable.download),
-                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                    ),
-                ).drop(request.offset).take(request.limit)
-            } else {
-                emptyList()
+        val preferences = context.dataStore.data.first()
+        val playlists = database.playlists(
+            preferences[PlaylistSortTypeKey].toEnum(PlaylistSortType.CREATE_DATE),
+            preferences[PlaylistSortDescendingKey] ?: true,
+        ).first().filterYoutubeShorts(preferences[HideYoutubeShortsKey] ?: false)
+        return libraryPlaylistEntries(context, playlists, preferences)
+            .drop(request.offset).take(request.limit).map { entry ->
+                val playlist = entry.playlist
+                browsableMediaItem(
+                    "${MusicService.PLAYLIST}/${entry.id}", playlist.playlist.name,
+                    if (entry.builtIn == null) context.resources.getQuantityString(
+                        R.plurals.n_song, playlist.songCount, playlist.songCount) else null,
+                    entry.builtIn?.let { drawableUri(it.icon) } ?: playlist.thumbnails.firstOrNull()?.toUri(),
+                    MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                )
             }
-        val playlistRequest = request.afterLeadingItems(2)
-        val playlists =
-            if (playlistRequest.limit == 0) {
-                emptyList()
-            } else {
-                database.playlistsByCreateDateAsc(playlistRequest.limit, playlistRequest.offset,
-                    context.dataStore.get(AndroidAutoSortKey, "date") == "name",
-                    context.dataStore.get(AndroidAutoDescendingKey, false))
-            }
-        return builtInItems + playlists.map { playlist ->
-            browsableMediaItem(
-                "${MusicService.PLAYLIST}/${playlist.id}",
-                playlist.playlist.name,
-                context.resources.getQuantityString(R.plurals.n_song, playlist.songCount, playlist.songCount),
-                playlist.thumbnails.firstOrNull()?.toUri(),
-                MediaMetadata.MEDIA_TYPE_PLAYLIST,
-            )
+    }
+
+    private suspend fun builtInPlaylistSongs(playlistId: String): List<Song>? = when (playlistId) {
+        PlaylistEntity.LIKED_PLAYLIST_ID -> database.likedSongs(SongSortType.CREATE_DATE, descending = true).first()
+        PlaylistEntity.DOWNLOADED_PLAYLIST_ID -> {
+            val downloads = downloadUtil.downloads.value
+            database.allSongs().first().filter { downloads[it.id]?.state == Download.STATE_COMPLETED }
+                .sortedBy { downloads[it.id]?.updateTimeMs ?: 0L }
         }
+        BuiltInPlaylist.CACHED.id -> database.cachePlaylistSongs().first().filter { song ->
+            val length = song.format?.contentLength ?: androidx.media3.datasource.cache.ContentMetadata
+                .getContentLength(service.playerCache.getContentMetadata(song.id))
+            !song.song.isDownloaded && length > 0L && service.playerCache.isCached(song.id, 0L, length)
+        }.sortedByDescending { it.song.dateDownload }
+        BuiltInPlaylist.TOP.id -> database.mostPlayedSongs(
+            fromTimeStamp = MyTopFilter.ALL_TIME.toLocalDateTime(),
+            limit = context.dataStore.get(TopSize, "50").toIntOrNull()?.coerceIn(1, 1000) ?: 50,
+        ).first()
+        BuiltInPlaylist.UPLOADED.id -> database.uploadedSongs(SongSortType.CREATE_DATE, descending = true).first()
+        else -> null
     }
 
     private suspend fun loadPlaylistChildren(
@@ -611,9 +639,10 @@ constructor(
                 songIds.mapNotNull(songsById::get)
             }
 
-            else ->
-                database.playlistSongs(playlistId, songRequest.limit, songRequest.offset, hideExplicit, hideVideos)
-                    .map { it.song }
+            else -> builtInPlaylistSongs(playlistId)?.let { songs ->
+                visibleSongs(songs).drop(songRequest.offset).take(songRequest.limit)
+            } ?: database.playlistSongs(playlistId, songRequest.limit, songRequest.offset, hideExplicit, hideVideos)
+                .map { it.song }
         }
 
         return buildList {
@@ -845,28 +874,8 @@ constructor(
                 MusicService.PLAYLIST -> {
                     val songId = path.getOrNull(2) ?: return@future defaultResult
                     val playlistId = path.getOrNull(1) ?: return@future defaultResult
-                    val songs = when (playlistId) {
-                        PlaylistEntity.LIKED_PLAYLIST_ID -> database.likedSongs(SongSortType.CREATE_DATE, descending = true)
-                        PlaylistEntity.DOWNLOADED_PLAYLIST_ID -> {
-                            val downloads = downloadUtil.downloads.value
-                            database
-                                .allSongs()
-                                .flowOn(Dispatchers.IO)
-                                .map { songs ->
-                                    songs.filter {
-                                        downloads[it.id]?.state == Download.STATE_COMPLETED
-                                    }
-                                }.map { songs ->
-                                    songs
-                                        .map { it to downloads[it.id] }
-                                        .sortedBy { it.second?.updateTimeMs ?: 0L }
-                                        .map { it.first }
-                                }
-                        }
-                        else -> database.playlistSongs(playlistId).map { list ->
-                            list.map { it.song }
-                        }
-                    }.first().let { visibleSongs(it) }
+                    val songs = visibleSongs(builtInPlaylistSongs(playlistId)
+                        ?: database.playlistSongs(playlistId).first().map { it.song })
 
                     // Check if this is a shuffle action
                     if (songId == MusicService.SHUFFLE_ACTION) {
@@ -1072,6 +1081,9 @@ constructor(
                 .setIsPlayable(false)
                 .setIsBrowsable(true)
                 .setMediaType(mediaType)
+                .setSupportedCommands(if (id == MusicService.PLAYLIST || id.startsWith("${MusicService.PLAYLIST}/")) {
+                    listOf(MediaSessionConstants.ACTION_CYCLE_PLAYLIST_SORT, MediaSessionConstants.ACTION_REVERSE_PLAYLIST_SORT)
+                } else emptyList())
                 .build(),
         ).build()
 

@@ -65,6 +65,9 @@ import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.PlaylistListItem
 import com.metrolist.music.ui.component.TextFieldDialog
 import com.metrolist.music.ui.menu.ExportDialog
+import com.metrolist.music.utils.dataStore
+import com.metrolist.music.models.playlistIsVisible
+import com.metrolist.music.models.setPlaylistVisible
 import com.metrolist.music.utils.PlaylistExporter
 import com.metrolist.music.utils.getExportFileUri
 import com.metrolist.music.utils.saveToPublicDocuments
@@ -89,6 +92,10 @@ fun PlaylistMenu(
     val playerConnection = LocalPlayerConnection.current ?: return
     val listenTogetherManager = LocalListenTogetherManager.current
     val isGuest = listenTogetherManager?.isInRoom == true && !listenTogetherManager.isHost
+    val libraryPreferences by remember { context.dataStore.data }.collectAsStateWithLifecycle(
+        initialValue = androidx.datastore.preferences.core.emptyPreferences(),
+    )
+    val playlistVisible = playlistIsVisible(playlist.id, libraryPreferences)
     val dbPlaylist by database.playlist(playlist.id).collectAsStateWithLifecycle(initialValue = playlist)
     var songs by remember {
         mutableStateOf(emptyList<Song>())
@@ -475,6 +482,15 @@ fun PlaylistMenu(
             Material3MenuGroup(
                 items =
                     buildList {
+                        if (autoPlaylist != true) add(Material3MenuItemData(
+                            title = { Text(stringResource(if (playlistVisible) R.string.hide_library_playlist else R.string.show_library_playlist)) },
+                            description = { Text(stringResource(R.string.playlist_visibility_help)) },
+                            icon = { Icon(painterResource(R.drawable.tune), contentDescription = null) },
+                            onClick = {
+                                coroutineScope.launch { context.dataStore.setPlaylistVisible(playlist.id, !playlistVisible) }
+                                onDismiss()
+                            },
+                        ))
                         if (editable && autoPlaylist != true && !isGuest) {
                             add(
                                 Material3MenuItemData(

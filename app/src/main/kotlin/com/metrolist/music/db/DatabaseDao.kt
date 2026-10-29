@@ -1134,7 +1134,7 @@ interface DatabaseDao {
     fun albumArtistMaps(albumId: String): List<AlbumArtistMap>
 
     @Transaction
-    @Query("SELECT *, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount FROM playlist WHERE bookmarkedAt IS NOT NULL ORDER BY rowId")
+    @Query("SELECT *, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount FROM playlist WHERE bookmarkedAt IS NOT NULL ORDER BY bookmarkedAt, id")
     fun playlistsByCreateDateAsc(): Flow<List<Playlist>>
 
     @Transaction
@@ -1166,6 +1166,15 @@ interface DatabaseDao {
     @Query("SELECT *, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount FROM playlist WHERE bookmarkedAt IS NOT NULL ORDER BY songCount")
     fun playlistsBySongCountAsc(): Flow<List<Playlist>>
 
+    @Transaction
+    @Query("""
+        SELECT playlist.*, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount
+        FROM playlist WHERE bookmarkedAt IS NOT NULL
+        ORDER BY (SELECT COALESCE(SUM(song.totalPlayTime), 0) FROM song
+            WHERE song.id IN (SELECT songId FROM playlist_song_map WHERE playlistId = playlist.id)), playlist.id
+    """)
+    fun playlistsByPlayTimeAsc(): Flow<List<Playlist>>
+
     fun playlists(
         sortType: PlaylistSortType,
         descending: Boolean,
@@ -1180,6 +1189,8 @@ interface DatabaseDao {
 
         PlaylistSortType.SONG_COUNT -> playlistsBySongCountAsc()
         PlaylistSortType.LAST_UPDATED -> playlistsByUpdatedDateAsc()
+        PlaylistSortType.PLAY_TIME -> playlistsByPlayTimeAsc()
+        PlaylistSortType.MANUAL -> playlistsByCreateDateAsc()
     }.map { it.reversed(descending) }
 
     @Transaction

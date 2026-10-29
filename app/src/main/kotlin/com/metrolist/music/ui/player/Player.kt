@@ -242,10 +242,14 @@ fun BottomSheetPlayer(
         mutableStateOf(false)
     }
 
-    val playerBackground by rememberEnumPreference(
+    val configuredPlayerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
         defaultValue = PlayerBackgroundStyle.DEFAULT,
     )
+    val artworkTheme by rememberPreference(com.metrolist.music.constants.PlayerArtworkThemeKey, true)
+    val playerBackground = if (artworkTheme && configuredPlayerBackground == PlayerBackgroundStyle.DEFAULT) {
+        PlayerBackgroundStyle.GRADIENT
+    } else configuredPlayerBackground
     val customControls by rememberPreference(PlayerControlsKey, "")
     val playerButtonsStyle by rememberEnumPreference(
         key = PlayerButtonsStyleKey,
@@ -415,53 +419,47 @@ fun BottomSheetPlayer(
         playerConnection.service.addToQueueAutomix(automix[0], 0)
     }
 
-    val defaultGradientColors = listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceVariant)
+    val defaultGradientColors = PlayerColorExtractor.gradientColorsFromSeed(MaterialTheme.colorScheme.primary)
     val fallbackColor = MaterialTheme.colorScheme.surface.toArgb()
 
-    LaunchedEffect(mediaMetadata?.id, playerBackground) {
-        if (playerBackground == PlayerBackgroundStyle.GRADIENT) {
-            val currentMetadata = mediaMetadata
-            if (currentMetadata != null && currentMetadata.thumbnailUrl != null) {
-                val cachedColors = gradientColorsCache[currentMetadata.id]
-                if (cachedColors != null) {
-                    gradientColors = cachedColors
-                    return@LaunchedEffect
-                }
-                withContext(Dispatchers.IO) {
-                    val request =
-                        ImageRequest
-                            .Builder(context)
-                            .data(currentMetadata.thumbnailUrl)
-                            .size(100, 100)
-                            .allowHardware(false)
-                            .memoryCacheKey("gradient_${currentMetadata.id}")
-                            .build()
-
-                    val result = runCatching { context.imageLoader.execute(request) }.getOrNull()
-                    if (result != null) {
-                        val bitmap = result.image?.toBitmap()
-                        if (bitmap != null) {
-                            val palette =
-                                withContext(Dispatchers.Default) {
-                                    Palette
-                                        .from(bitmap)
-                                        .maximumColorCount(8)
-                                        .resizeBitmapArea(100 * 100)
-                                        .generate()
-                                }
-                            val extractedColors =
-                                PlayerColorExtractor.extractGradientColors(
-                                    palette = palette,
-                                    fallbackColor = fallbackColor,
-                                )
-                            gradientColorsCache[currentMetadata.id] = extractedColors
-                            withContext(Dispatchers.Main) { gradientColors = extractedColors }
-                        }
+    LaunchedEffect(mediaMetadata?.id, mediaMetadata?.thumbnailUrl, playerBackground) {
+        if (playerBackground != PlayerBackgroundStyle.GRADIENT) {
+            gradientColors = emptyList()
+            return@LaunchedEffect
+        }
+        val thumbnail = mediaMetadata?.thumbnailUrl
+        if (thumbnail == null) {
+            gradientColors = defaultGradientColors
+            return@LaunchedEffect
+        }
+        gradientColorsCache[thumbnail]?.let {
+            gradientColors = it
+            return@LaunchedEffect
+        }
+        gradientColors = defaultGradientColors
+        val extracted = try {
+            withContext(Dispatchers.IO) {
+                val request = ImageRequest.Builder(context).data(thumbnail)
+                    .size(100, 100).allowHardware(false).build()
+                val bitmap = context.imageLoader.execute(request).image?.toBitmap()
+                bitmap?.let {
+                    withContext(Dispatchers.Default) {
+                        PlayerColorExtractor.extractGradientColors(
+                            Palette.from(it).maximumColorCount(8).resizeBitmapArea(100 * 100).generate(),
+                            fallbackColor,
+                        )
                     }
                 }
             }
-        } else {
-            gradientColors = emptyList()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        gradientColors = extracted ?: defaultGradientColors
+        if (extracted != null) {
+            gradientColorsCache[thumbnail] = extracted
+            if (gradientColorsCache.size > 32) gradientColorsCache.remove(gradientColorsCache.keys.first())
         }
     }
 
@@ -1595,54 +1593,71 @@ fun BottomSheetPlayer(
             ) {
                 Column {
                     if (customControls.isNotEmpty()) {
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerHorizontalPadding),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            PlayerControl.decode(customControls).forEach { control ->
-                                val enabled = when (control) {
-                                    PlayerControl.PREVIOUS -> canSkipPrevious && !isListenTogetherGuest
-                                    PlayerControl.NEXT -> canSkipNext && !isListenTogetherGuest
-                                    PlayerControl.SHUFFLE, PlayerControl.REPEAT -> !isListenTogetherGuest
-                                    else -> true
-                                }
-                                androidx.compose.material3.IconButton(
-                                    enabled = enabled,
-                                    onClick = {
-                                        when (control) {
-                                            PlayerControl.PREVIOUS -> playerConnection.seekToPrevious()
-                                            PlayerControl.NEXT -> playerConnection.seekToNext()
-                                            PlayerControl.PLAY_PAUSE -> {
-                                                if (isListenTogetherGuest) playerConnection.toggleMute()
-                                                else if (isCasting) {
-                                                    if (castIsPlaying) castHandler?.pause() else castHandler?.play()
-                                                } else if (playbackState == STATE_ENDED) {
-                                                    playerConnection.player.seekTo(0, 0)
-                                                    playerConnection.player.playWhenReady = true
-                                                } else playerConnection.togglePlayPause()
-                                            }
-                                            PlayerControl.SHUFFLE -> playerConnection.player.shuffleModeEnabled = !playerConnection.player.shuffleModeEnabled
-                                            PlayerControl.REPEAT -> playerConnection.player.toggleRepeatMode()
-                                            PlayerControl.LIKE -> playerConnection.toggleLike()
-                                            PlayerControl.LYRICS -> showInlineLyrics = !showInlineLyrics
-                                            PlayerControl.QUEUE -> queueSheetState.expandSoft()
+                        val controls = PlayerControl.decode(customControls)
+                        val playIndex = controls.indexOf(PlayerControl.PLAY_PAUSE)
+                        val renderControl: @Composable (PlayerControl) -> Unit = { control ->
+                            val enabled = when (control) {
+                                PlayerControl.PREVIOUS -> canSkipPrevious && !isListenTogetherGuest
+                                PlayerControl.NEXT -> canSkipNext && !isListenTogetherGuest
+                                PlayerControl.SHUFFLE, PlayerControl.REPEAT -> !isListenTogetherGuest
+                                else -> true
+                            }
+                            androidx.compose.material3.IconButton(
+                                modifier = if (control == PlayerControl.PLAY_PAUSE) Modifier.size(76.dp)
+                                    .clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primary)
+                                    else Modifier.size(48.dp),
+                                enabled = enabled,
+                                onClick = {
+                                    when (control) {
+                                        PlayerControl.PREVIOUS -> playerConnection.seekToPrevious()
+                                        PlayerControl.NEXT -> playerConnection.seekToNext()
+                                        PlayerControl.PLAY_PAUSE -> {
+                                            if (isListenTogetherGuest) playerConnection.toggleMute()
+                                            else if (isCasting) {
+                                                if (castIsPlaying) castHandler?.pause() else castHandler?.play()
+                                            } else if (playbackState == STATE_ENDED) {
+                                                playerConnection.player.seekTo(0, 0)
+                                                playerConnection.player.playWhenReady = true
+                                            } else playerConnection.togglePlayPause()
                                         }
-                                    },
-                                ) {
-                                    val icon = when (control) {
-                                        PlayerControl.SHUFFLE -> R.drawable.shuffle
-                                        PlayerControl.PREVIOUS -> R.drawable.skip_previous
-                                        PlayerControl.PLAY_PAUSE -> if (isListenTogetherGuest) {
-                                            if (isMuted) R.drawable.volume_off else R.drawable.volume_up
-                                        } else if (effectiveIsPlaying) R.drawable.pause else R.drawable.play
-                                        PlayerControl.NEXT -> R.drawable.skip_next
-                                        PlayerControl.REPEAT -> R.drawable.repeat
-                                        PlayerControl.LIKE -> if (currentSong?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border
-                                        PlayerControl.LYRICS -> R.drawable.lyrics
-                                        PlayerControl.QUEUE -> R.drawable.queue_music
+                                        PlayerControl.SHUFFLE -> playerConnection.player.shuffleModeEnabled = !playerConnection.player.shuffleModeEnabled
+                                        PlayerControl.REPEAT -> playerConnection.player.toggleRepeatMode()
+                                        PlayerControl.LIKE -> playerConnection.toggleLike()
+                                        PlayerControl.LYRICS -> showInlineLyrics = !showInlineLyrics
+                                        PlayerControl.QUEUE -> queueSheetState.expandSoft()
                                     }
-                                    Icon(painterResource(icon), control.label(), tint = TextBackgroundColor)
+                                },
+                            ) {
+                                val icon = when (control) {
+                                    PlayerControl.SHUFFLE -> R.drawable.shuffle
+                                    PlayerControl.PREVIOUS -> R.drawable.skip_previous
+                                    PlayerControl.PLAY_PAUSE -> if (isListenTogetherGuest) {
+                                        if (isMuted) R.drawable.volume_off else R.drawable.volume_up
+                                    } else if (effectiveIsPlaying) R.drawable.pause else R.drawable.play
+                                    PlayerControl.NEXT -> R.drawable.skip_next
+                                    PlayerControl.REPEAT -> R.drawable.repeat
+                                    PlayerControl.LIKE -> if (currentSong?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border
+                                    PlayerControl.LYRICS -> R.drawable.lyrics
+                                    PlayerControl.QUEUE -> R.drawable.queue_music
                                 }
+                                Icon(painterResource(icon), control.label(),
+                                    modifier = Modifier.size(if (control == PlayerControl.PLAY_PAUSE) 40.dp else 28.dp),
+                                    tint = if (control == PlayerControl.PLAY_PAUSE) MaterialTheme.colorScheme.onPrimary else TextBackgroundColor)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerHorizontalPadding),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                controls.take(playIndex).forEach { renderControl(it) }
+                            }
+                            renderControl(PlayerControl.PLAY_PAUSE)
+                            FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                controls.drop(playIndex + 1).forEach { renderControl(it) }
                             }
                         }
                     } else if (useNewPlayerDesign) {

@@ -13,7 +13,12 @@ object PlayerColorExtractor {
         palette: Palette,
         fallbackColor: Int,
     ): List<Color> {
-        val primaryColor = Color(palette.rankedColors(1, fallbackColor).first())
+        return gradientColorsFromSeed(Color(palette.rankedColors(1, fallbackColor).first()))
+    }
+
+    internal fun gradientColorsFromSeed(seed: Color): List<Color> {
+        // White player text must remain readable even when the artwork is almost white.
+        val primaryColor = Color(seed.red * 0.42f, seed.green * 0.42f, seed.blue * 0.42f)
         return listOf(
             primaryColor,
             primaryColor.copy(

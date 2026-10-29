@@ -213,7 +213,7 @@ fun AddToPlaylistDialogOnline(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            PlaylistSortType.entries.forEach { type ->
+                            PlaylistSortType.entries.filter { it != PlaylistSortType.MANUAL }.forEach { type ->
                                 val selected = sortType == type
                                 FilterChip(
                                     selected = selected,
@@ -238,6 +238,8 @@ fun AddToPlaylistDialogOnline(
                                                 PlaylistSortType.NAME         -> R.string.sort_by_name
                                                 PlaylistSortType.SONG_COUNT   -> R.string.sort_by_song_count
                                                 PlaylistSortType.LAST_UPDATED -> R.string.sort_by_last_updated
+                                                PlaylistSortType.PLAY_TIME -> R.string.sort_by_play_time
+                                                PlaylistSortType.MANUAL -> R.string.playlist_manual_sort
                                             }),
                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                         )
