@@ -13,132 +13,129 @@ import kotlin.math.pow
 class VolumeNormalizationAudioProcessor : BaseAudioProcessor() {
     private var encoding = C.ENCODING_INVALID
     private var bytesPerSample = 0
+    private var channels = 0
+    private var sampleRate = 0
+    private var frame = DoubleArray(0)
+    private var limiter: LookAheadPeakLimiter? = null
 
-    @Volatile
-    var enabled = false
-        set(value) {
-            if (field != value) {
-                field = value
-                Timber.tag(TAG).d("Normalization processor enabled: $value")
-            }
-        }
+    @Volatile var enabled = false
 
     @Volatile
     var boostDb: Float = 0f
         set(value) { field = if (value.isFinite()) value.coerceIn(0f, 12f) else 0f }
 
-    private data class GainState(val targetGainMb: Int, val linearGain: Double)
+    @Volatile private var targetGainMb = 0
 
-    @Volatile
-    private var currentGain = GainState(0, 1.0)
-
-    @Synchronized
     fun setTargetGain(gainMb: Int) {
-        if (currentGain.targetGainMb != gainMb) {
-            val linearGain = 10.0.pow(gainMb / 2000.0)
-            currentGain = GainState(gainMb, linearGain)
-            Timber.tag(TAG).d("Target gain set to $gainMb mB (Linear multiplier: $linearGain)")
-        }
+        targetGainMb = gainMb
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        encoding = inputAudioFormat.encoding
-        bytesPerSample =
-            when (encoding) {
-                C.ENCODING_PCM_16BIT -> 2
-                C.ENCODING_PCM_24BIT -> 3
-                C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4
-                else -> throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
-            }
-
-        Timber.tag(TAG).d(
-            "Configured: sampleRate=${inputAudioFormat.sampleRate}, channels=${inputAudioFormat.channelCount}, encoding=$encoding",
-        )
+        when (inputAudioFormat.encoding) {
+            C.ENCODING_PCM_16BIT, C.ENCODING_PCM_24BIT, C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> Unit
+            else -> throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+        }
+        Timber.tag(TAG).d("Configured: $inputAudioFormat")
         return inputAudioFormat
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (!inputBuffer.hasRemaining()) return
-
-        val gain = currentGain
+        val limiter = checkNotNull(limiter)
         val boost = boostDb
-        val applyGain = (enabled && gain.targetGainMb != 0) || boost > 0f
-        val linearGain = 10.0.pow(((if (enabled) gain.targetGainMb else 0) + boost * 100.0) / 2000.0)
-        val sampleCount = inputBuffer.remaining() / bytesPerSample
-        val output = replaceOutputBuffer(sampleCount * bytesPerSample)
-
+        val gain = requestedGain(boost)
+        val frameBytes = channels * bytesPerSample
         inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
-        output.order(ByteOrder.LITTLE_ENDIAN)
-
-        when (encoding) {
-            C.ENCODING_PCM_16BIT ->
-                repeat(sampleCount) {
-                    val sample = inputBuffer.getShort()
-                    output.putShort(
-                        if (applyGain) {
-                            (sample * linearGain)
-                                .coerceIn(-32768.0, 32767.0)
-                                .toInt()
-                                .toShort()
-                        } else {
-                            sample
-                        },
-                    )
+        if (boost > 0f) {
+            val output = replaceOutputBuffer(inputBuffer.remaining()).order(ByteOrder.LITTLE_ENDIAN)
+            repeat(inputBuffer.remaining() / frameBytes) {
+                for (channel in 0 until channels) frame[channel] = readSample(inputBuffer)
+                limiter.enqueue(frame)
+                if (limiter.bufferedFrames > limiter.lookAheadFrames) {
+                    limiter.dequeue(frame, gain)
+                    for (channel in 0 until channels) writeSample(output, frame[channel])
                 }
-
-            C.ENCODING_PCM_24BIT ->
-                repeat(sampleCount) {
-                    val b0 = inputBuffer.get().toInt() and 0xFF
-                    val b1 = inputBuffer.get().toInt() and 0xFF
-                    val b2 = inputBuffer.get().toInt()
-                    val sample = (b2 shl 16) or (b1 shl 8) or b0
-                    val processed =
-                        if (applyGain) {
-                            (sample * linearGain)
-                                .coerceIn(-8388608.0, 8388607.0)
-                                .toInt()
-                        } else {
-                            sample
-                        }
-                    output.put((processed and 0xFF).toByte())
-                    output.put(((processed shr 8) and 0xFF).toByte())
-                    output.put(((processed shr 16) and 0xFF).toByte())
-                }
-
-            C.ENCODING_PCM_32BIT ->
-                repeat(sampleCount) {
-                    val sample = inputBuffer.getInt()
-                    output.putInt(
-                        if (applyGain) {
-                            (sample * linearGain)
-                                .coerceIn(-2147483648.0, 2147483647.0)
-                                .toLong()
-                                .toInt()
-                        } else {
-                            sample
-                        },
-                    )
-                }
-
-            C.ENCODING_PCM_FLOAT ->
-                repeat(sampleCount) {
-                    val sample = inputBuffer.getFloat()
-                    output.putFloat(
-                        if (applyGain) {
-                            (sample * linearGain.toFloat()).coerceIn(-1.0f, 1.0f)
-                        } else {
-                            sample
-                        },
-                    )
-                }
+            }
+            output.flip()
+        } else {
+            val output = replaceOutputBuffer(inputBuffer.remaining() + limiter.bufferedFrames * frameBytes)
+                .order(ByteOrder.LITTLE_ENDIAN)
+            // On disconnect or 0 dB, emit pending audio unboosted before passing through new audio.
+            while (limiter.bufferedFrames > 0) {
+                limiter.dequeue(frame, gain, limit = false)
+                for (channel in 0 until channels) writeSample(output, frame[channel])
+            }
+            limiter.reset()
+            if (gain == 1.0) output.put(inputBuffer)
+            else repeat(inputBuffer.remaining() / bytesPerSample) { writeSample(output, readSample(inputBuffer) * gain) }
+            output.flip()
         }
+    }
 
+    override fun onQueueEndOfStream() {
+        val limiter = limiter ?: return
+        if (limiter.bufferedFrames == 0) return
+        val boost = boostDb
+        val gain = requestedGain(boost)
+        val output = replaceOutputBuffer(limiter.bufferedFrames * channels * bytesPerSample).order(ByteOrder.LITTLE_ENDIAN)
+        while (limiter.bufferedFrames > 0) {
+            limiter.dequeue(frame, gain, limit = boost > 0f)
+            for (channel in 0 until channels) writeSample(output, frame[channel])
+        }
         output.flip()
     }
 
+    private fun requestedGain(boost: Float) = 10.0.pow(((if (enabled) targetGainMb else 0) + boost * 100.0) / 2000.0)
+
+    private fun readSample(input: ByteBuffer): Double = when (encoding) {
+        C.ENCODING_PCM_16BIT -> input.short / 32768.0
+        C.ENCODING_PCM_24BIT -> {
+            val low = input.get().toInt() and 0xFF
+            val middle = input.get().toInt() and 0xFF
+            ((input.get().toInt() shl 16) or (middle shl 8) or low) / 8388608.0
+        }
+        C.ENCODING_PCM_32BIT -> input.int / 2147483648.0
+        C.ENCODING_PCM_FLOAT -> input.float.toDouble()
+        else -> error("Audio processor is not configured")
+    }
+
+    private fun writeSample(output: ByteBuffer, sample: Double) {
+        when (encoding) {
+            C.ENCODING_PCM_16BIT -> output.putShort((sample * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort())
+            C.ENCODING_PCM_24BIT -> {
+                val value = (sample * 8388608.0).coerceIn(-8388608.0, 8388607.0).toInt()
+                output.put(value.toByte()).put((value shr 8).toByte()).put((value shr 16).toByte())
+            }
+            C.ENCODING_PCM_32BIT -> output.putInt((sample * 2147483648.0).coerceIn(-2147483648.0, 2147483647.0).toLong().toInt())
+            C.ENCODING_PCM_FLOAT -> output.putFloat(sample.coerceIn(-1.0, 1.0).toFloat())
+        }
+    }
+
+    override fun onFlush() {
+        // configure() may describe the next song before the old song's delayed tail is drained.
+        if (inputAudioFormat == AudioProcessor.AudioFormat.NOT_SET) return
+        if (encoding != inputAudioFormat.encoding || channels != inputAudioFormat.channelCount ||
+            sampleRate != inputAudioFormat.sampleRate) {
+            encoding = inputAudioFormat.encoding
+            bytesPerSample = when (encoding) {
+                C.ENCODING_PCM_16BIT -> 2
+                C.ENCODING_PCM_24BIT -> 3
+                else -> 4
+            }
+            channels = inputAudioFormat.channelCount
+            sampleRate = inputAudioFormat.sampleRate
+            frame = DoubleArray(channels)
+            limiter = LookAheadPeakLimiter(sampleRate, channels)
+        } else limiter?.reset()
+    }
+
     override fun onReset() {
+        limiter = null
         encoding = C.ENCODING_INVALID
         bytesPerSample = 0
+        channels = 0
+        sampleRate = 0
+        frame = DoubleArray(0)
     }
 
     private companion object {
